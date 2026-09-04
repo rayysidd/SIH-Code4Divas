@@ -1,0 +1,3 @@
+"""
+Font measurement module init.
+"""

@@ -1,0 +1,11 @@
+{
+  "@@locale": "hi",
+  "appTitle": "लेबललेंस",
+  "scanLabel": "लेबल स्कैन करें",
+  "verdictPass": "पास",
+  "verdictFail": "फेल",
+  "verdictWarn": "चेतावनी",
+  "ruleCitation": "नियम {rule_number}",
+  "reportViolation": "उल्लंघन की रिपोर्ट करें",
+  "settings": "सेटिंग्स"
+}

@@ -1,0 +1,75 @@
+{
+  "version": "2024.01",
+  "effective_date": "2024-01-01",
+  "amendment_basis": "LMPC Amendment Rules 2023, effective 01 Jan 2024",
+  "font_size_rules": {
+    "table_I": {
+      "applicable_when": "unit_type == 'WEIGHT_VOLUME'",
+      "tiers": [
+        { "min_area": 0, "max_area": 50, "printed_min_mm": 1.0, "embossed_min_mm": 1.5 },
+        { "min_area": 50, "max_area": 100, "printed_min_mm": 1.5, "embossed_min_mm": 3.0 },
+        { "min_area": 100, "max_area": 500, "printed_min_mm": 2.5, "embossed_min_mm": 4.0 },
+        { "min_area": 500, "max_area": 2500, "printed_min_mm": 4.0, "embossed_min_mm": 6.0 },
+        { "min_area": 2500, "max_area": 999999, "printed_min_mm": 6.0, "embossed_min_mm": 6.0 }
+      ]
+    },
+    "table_II": {
+      "applicable_when": "unit_type == 'LENGTH_AREA_NUMBER'",
+      "tiers": [
+        { "min_area": 0, "max_area": 100, "printed_min_mm": 1.0, "embossed_min_mm": 2.0 },
+        { "min_area": 100, "max_area": 500, "printed_min_mm": 2.0, "embossed_min_mm": 4.0 },
+        { "min_area": 500, "max_area": 2500, "printed_min_mm": 4.0, "embossed_min_mm": 6.0 },
+        { "min_area": 2500, "max_area": 999999, "printed_min_mm": 6.0, "embossed_min_mm": 6.0 }
+      ]
+    },
+    "rule_7_3_baseline": {
+      "all_text_printed_min_mm": 1.0,
+      "all_text_embossed_min_mm": 2.0
+    }
+  },
+  "placement_rules": {
+    "net_quantity": {
+      "zone": "LOWER_30PCT_OF_PDP",
+      "clear_space": {
+        "above_mm_factor": 1.0,
+        "below_mm_factor": 1.0,
+        "left_mm_factor": 2.0,
+        "right_mm_factor": 2.0
+      }
+    }
+  },
+  "mandatory_declarations": [
+    {
+      "field": "MANUFACTURER_NAME",
+      "rule": "6(1)(a)"
+    },
+    {
+      "field": "MANUFACTURER_ADDRESS",
+      "rule": "6(1)(a)"
+    },
+    {
+      "field": "GENERIC_NAME",
+      "rule": "6(1)(b)"
+    },
+    {
+      "field": "NET_QUANTITY",
+      "rule": "6(1)(c)"
+    },
+    {
+      "field": "MFG_DATE",
+      "rule": "6(1)(d)"
+    },
+    {
+      "field": "MRP",
+      "rule": "6(1)(e)"
+    },
+    {
+      "field": "CUSTOMER_CARE",
+      "rule": "6(1)(h)"
+    },
+    {
+      "field": "UNIT_SALE_PRICE",
+      "rule": "6(11)"
+    }
+  ]
+}

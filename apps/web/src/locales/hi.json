@@ -1,0 +1,24 @@
+{
+  "sidebar": {
+    "overview": "अवलोकन",
+    "products": "उत्पाद",
+    "violations": "उल्लंघन",
+    "ecommerce": "ई-कॉमर्स",
+    "analytics": "विश्लेषण",
+    "reports": "रिपोर्ट",
+    "settings": "सेटिंग्स"
+  },
+  "dashboard": {
+    "greeting": "सुप्रभात",
+    "scanned": "स्कैन किए गए",
+    "passRate": "पास दर",
+    "violations": "उल्लंघन",
+    "avgTime": "औसत स्कैन समय"
+  },
+  "verdict": {
+    "pass": "पास",
+    "fail": "फेल",
+    "warn": "चेतावनी",
+    "inconclusive": "अस्पष्ट"
+  }
+}

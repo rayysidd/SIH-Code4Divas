@@ -1,0 +1,35 @@
+name: labellens_mobile
+description: "LabelLens — Automated Legal Metrology Label Compliance Verification (SIH26034)"
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.2.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  design_system:
+    path: ../../packages/design-system
+  flutter_riverpod: ^2.4.9
+  go_router: ^13.0.1
+  permission_handler: ^11.3.1
+  image_picker: ^1.1.2
+  image: ^4.1.7
+  http_parser: ^4.0.2
+  share_plus: ^9.0.0
+  camera: ^0.10.5+9
+  path_provider: ^2.1.2
+  sqflite: ^2.3.0
+  http: ^1.2.0
+  shared_preferences: ^2.2.2
+  open_filex: ^4.3.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.1
+
+flutter:
+  uses-material-design: true

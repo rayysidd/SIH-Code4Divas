@@ -1,0 +1,24 @@
+{
+  "sidebar": {
+    "overview": "Overview",
+    "products": "Products",
+    "violations": "Violations",
+    "ecommerce": "E-Commerce",
+    "analytics": "Analytics",
+    "reports": "Reports",
+    "settings": "Settings"
+  },
+  "dashboard": {
+    "greeting": "Good morning",
+    "scanned": "Scanned",
+    "passRate": "Pass Rate",
+    "violations": "Violations",
+    "avgTime": "Avg Scan Time"
+  },
+  "verdict": {
+    "pass": "PASS",
+    "fail": "FAIL",
+    "warn": "WARN",
+    "inconclusive": "INCONCLUSIVE"
+  }
+}

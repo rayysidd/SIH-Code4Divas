@@ -1,0 +1,25 @@
+{
+  "@@locale": "en",
+  "appTitle": "LabelLens",
+  "@appTitle": {
+    "description": "The title of the application"
+  },
+  "scanLabel": "Scan Label",
+  "@scanLabel": {
+    "description": "Button text to initiate a label scan"
+  },
+  "verdictPass": "PASS",
+  "verdictFail": "FAIL",
+  "verdictWarn": "WARN",
+  "ruleCitation": "Rule {rule_number}",
+  "@ruleCitation": {
+    "placeholders": {
+      "rule_number": {
+        "type": "String",
+        "example": "6(1)(e)"
+      }
+    }
+  },
+  "reportViolation": "Report Violation",
+  "settings": "Settings"
+}

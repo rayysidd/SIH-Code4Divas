@@ -1,0 +1,45 @@
+export const colors = {
+  brand: {
+    primary: '#1A3C6B',
+    secondary: '#2E7D9E',
+    accent: '#F4A500',
+    accentDark: '#C17D00',
+  },
+  status: {
+    pass: '#1B7A3E',
+    passBg: '#E8F5ED',
+    passBorder: '#A3D9B5',
+    fail: '#C0392B',
+    failBg: '#FDECEA',
+    failBorder: '#F5B7B1',
+    warn: '#E67E22',
+    warnBg: '#FEF5E7',
+    warnBorder: '#FAD7A0',
+    inconclusive: '#7F8C8D',
+    inconclusiveBg: '#F2F3F4',
+  },
+  surface: {
+    '0': '#FFFFFF',
+    '1': '#F8F9FA',
+    '2': '#F1F3F5',
+    '3': '#E9ECEF',
+    '4': '#DEE2E6',
+  },
+  text: {
+    primary: '#1C2230',
+    secondary: '#495057',
+    tertiary: '#868E96',
+    inverse: '#FFFFFF',
+  },
+  darkMode: {
+    surface0: '#1C1C1E',
+    surface1: '#2C2C2E',
+    surface2: '#3A3A3C',
+    textPrimary: '#F2F2F7',
+    textSecondary: '#AEAEB2',
+    brandPrimary: '#4A90D9',
+    statusPass: '#30D158',
+    statusFail: '#FF453A',
+    statusWarn: '#FF9F0A',
+  }
+};

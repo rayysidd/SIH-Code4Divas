@@ -1,0 +1,70 @@
+# =========================
+# Python
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+*.manifest
+*.spec
+.Python
+
+# =========================
+# Virtual Environment
+# =========================
+venv/
+.venv/
+env/
+
+# =========================
+# Testing
+# =========================
+.pytest_cache/
+htmlcov/
+.coverage
+.coverage.*
+*.cover
+coverage.xml
+nosetests.xml
+
+# =========================
+# Environment Variables
+# =========================
+.env
+.env.*
+!.env.example
+
+# =========================
+# Database
+# =========================
+*.db
+*.sqlite
+*.sqlite3
+
+# =========================
+# Logs
+# =========================
+*.log
+
+# =========================
+# Debug / Temp Artifacts
+# =========================
+debug_*.json
+debug_*.txt
+latest_upload_debug.*
+dummy.jpg
+test.jpg
+
+# =========================
+# Uploads (user-uploaded files)
+# =========================
+uploads/
+
+# =========================
+# IDE
+# =========================
+.idea/
+.vscode/
+*.swp
+*.swo
