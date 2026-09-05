@@ -1,19 +1,20 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:http/http.dart' as http;
-import 'package:http_parser/http_parser.dart';
-import 'package:camera/camera.dart';
 import 'package:path_provider/path_provider.dart';
 
 /// API Service for connecting to the backend.
 class ApiService {
   // Note: If you are testing on a physical device, you must use your computer's local IP (e.g. 192.168.X.X)
+  static String? _customBaseUrl;
+  static void setBaseUrl(String url) => _customBaseUrl = url;
+
   static String get baseUrl {
+    if (_customBaseUrl != null && _customBaseUrl!.isNotEmpty) return _customBaseUrl!;
     const envUrl = String.fromEnvironment('API_BASE_URL');
     if (envUrl.isNotEmpty) return envUrl;
     try {
-      if (Platform.isAndroid) return 'http://192.168.1.7:8000/v1'; // Change this to your computer's actual Wi-Fi IPv4 address!
+      if (Platform.isAndroid) return 'https://anointer-stupor-parchment.ngrok-free.dev/v1'; // Change this to your computer's actual Wi-Fi IPv4 address!
     } catch (e) {
       // Platform throws on Web
     }
@@ -34,17 +35,27 @@ class ApiService {
   }
 
   static Future<Map<String, dynamic>> login(String username, String password) async {
-    final response = await http.post(
-      Uri.parse('$baseUrl/auth/login'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'username': username, 'password': password}),
-    );
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/auth/login'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'username': username, 'password': password}),
+      ).timeout(const Duration(seconds: 10));
 
-    if (response.statusCode == 200) {
-      return jsonDecode(response.body);
-    } else {
-      final error = jsonDecode(response.body)['detail'] ?? 'Login failed';
-      throw Exception(error);
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      } else {
+        final decoded = jsonDecode(response.body);
+        final error = decoded['detail'] ?? 'Login failed';
+        throw Exception(error);
+      }
+    } on SocketException catch (e) {
+      throw Exception('Cannot reach backend at $baseUrl ($e). Check Wi-Fi connection.');
+    } catch (e) {
+      if (e.toString().contains('TimeoutException')) {
+        throw Exception('Connection timed out connecting to $baseUrl');
+      }
+      rethrow;
     }
   }
 
@@ -65,44 +76,67 @@ class ApiService {
       body['invite_code'] = inviteCode.trim();
     }
 
-    final response = await http.post(
-      Uri.parse('$baseUrl/auth/register'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode(body),
-    );
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/auth/register'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(body),
+      ).timeout(const Duration(seconds: 10));
 
-    if (response.statusCode == 200) {
-      return jsonDecode(response.body);
-    } else {
-      final error = jsonDecode(response.body)['detail'] ?? 'Registration failed';
-      throw Exception(error);
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      } else {
+        final decoded = jsonDecode(response.body);
+        final error = decoded['detail'] ?? 'Registration failed';
+        throw Exception(error);
+      }
+    } on SocketException catch (e) {
+      throw Exception('Cannot reach backend at $baseUrl ($e)');
+    } catch (e) {
+      if (e.toString().contains('TimeoutException')) {
+        throw Exception('Connection timed out connecting to $baseUrl');
+      }
+      rethrow;
     }
   }
 
   static Future<Map<String, dynamic>> refreshTokens(String refreshToken) async {
-    final response = await http.post(
-      Uri.parse('$baseUrl/auth/refresh'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'refresh_token': refreshToken}),
-    );
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/auth/refresh'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'refresh_token': refreshToken}),
+      ).timeout(const Duration(seconds: 8));
 
-    if (response.statusCode == 200) {
-      return jsonDecode(response.body);
-    } else {
-      throw Exception('Session expired');
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      } else {
+        throw Exception('Session expired');
+      }
+    } catch (e) {
+      rethrow;
     }
   }
 
   static Future<Map<String, dynamic>> getMe() async {
-    final response = await http.get(
-      Uri.parse('$baseUrl/auth/me'),
-      headers: _headers,
-    );
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/auth/me'),
+        headers: _headers,
+      ).timeout(const Duration(seconds: 10));
 
-    if (response.statusCode == 200) {
-      return jsonDecode(response.body);
-    } else {
-      throw Exception('Failed to fetch profile');
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      } else {
+        throw Exception('Failed to fetch profile');
+      }
+    } on SocketException catch (e) {
+      throw Exception('Cannot reach backend at $baseUrl ($e)');
+    } catch (e) {
+      if (e.toString().contains('TimeoutException')) {
+        throw Exception('Connection timed out connecting to $baseUrl');
+      }
+      rethrow;
     }
   }
 
@@ -229,9 +263,12 @@ class ApiService {
     }
   }
 
-  static Future<Map<String, dynamic>> getAnalyticsOverview() async {
+  static Future<Map<String, dynamic>> getAnalyticsOverview({bool mine = false}) async {
+    final uri = Uri.parse('$baseUrl/analytics/overview').replace(
+      queryParameters: mine ? {'mine': 'true'} : null,
+    );
     final response = await http.get(
-      Uri.parse('$baseUrl/analytics/overview'),
+      uri,
       headers: _headers,
     );
     if (response.statusCode == 200) {
@@ -241,9 +278,12 @@ class ApiService {
     }
   }
 
-  static Future<List<dynamic>> getTopViolations() async {
+  static Future<List<dynamic>> getTopViolations({bool mine = false}) async {
+    final uri = Uri.parse('$baseUrl/analytics/top-violations').replace(
+      queryParameters: mine ? {'mine': 'true'} : null,
+    );
     final response = await http.get(
-      Uri.parse('$baseUrl/analytics/top-violations'),
+      uri,
       headers: _headers,
     );
     if (response.statusCode == 200) {
@@ -253,15 +293,76 @@ class ApiService {
     }
   }
 
-  static Future<Map<String, dynamic>> getComplianceTrend({int days = 30}) async {
+  static Future<Map<String, dynamic>> getComplianceTrend({int days = 30, bool mine = false}) async {
+    final params = {'days': days.toString()};
+    if (mine) params['mine'] = 'true';
+    final uri = Uri.parse('$baseUrl/analytics/compliance-trend').replace(
+      queryParameters: params,
+    );
     final response = await http.get(
-      Uri.parse('$baseUrl/analytics/compliance-trend?days=$days'),
+      uri,
       headers: _headers,
     );
     if (response.statusCode == 200) {
       return jsonDecode(response.body);
     } else {
       throw Exception('Failed to fetch compliance trend');
+    }
+  }
+
+  static Future<Map<String, dynamic>> getEcomOverview() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/analytics/ecom-overview'),
+      headers: _headers,
+    );
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception('Failed to fetch ecom overview');
+    }
+  }
+
+  static Future<Map<String, dynamic>> checkListingUrl(String listingUrl) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/batch/listings/check'),
+      headers: _headers,
+      body: jsonEncode({'listing_url': listingUrl}),
+    );
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      final error = jsonDecode(response.body)['detail'] ?? 'Failed to check listing URL';
+      throw Exception(error);
+    }
+  }
+
+  static Future<Map<String, dynamic>> submitCitizenReport({
+    required File image,
+    required String problemType,
+    String? description,
+    double? latitude,
+    double? longitude,
+  }) async {
+    final request = http.MultipartRequest('POST', Uri.parse('$baseUrl/citizens/report'));
+    request.files.add(await http.MultipartFile.fromPath('image', image.path));
+    request.fields['problem_type'] = problemType;
+    if (description != null && description.isNotEmpty) {
+      request.fields['description'] = description;
+    }
+    if (latitude != null) {
+      request.fields['latitude'] = latitude.toString();
+    }
+    if (longitude != null) {
+      request.fields['longitude'] = longitude.toString();
+    }
+
+    final streamedResponse = await request.send();
+    final response = await http.Response.fromStream(streamedResponse);
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      final err = jsonDecode(response.body)['detail'] ?? 'Failed to submit report';
+      throw Exception(err);
     }
   }
 

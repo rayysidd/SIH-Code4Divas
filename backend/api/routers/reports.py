@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from ..schemas import ScanResponse, ViolationCountSummary, ViolationResponse, SeverityEnum, VerdictEnum
 from ..auth import get_current_user, TokenData
 from ..database import get_db
-from ..models import ScanSession, Violation, ScanTask
+from ..models import ScanSession, Violation, ScanTask, ScanCheck
 from .scans import _scan_store
 
 router = APIRouter(prefix="/report", tags=["Reports"])
@@ -26,15 +26,13 @@ async def get_report(
     Retrieve full scan report as JSON.
     SRS Appendix A — GET /report/{scan_id}
     """
-    if scan_id in _scan_store and "response" in _scan_store[scan_id]:
-        return _scan_store[scan_id]["response"]
-
     session = db.query(ScanSession).filter(ScanSession.scan_id == scan_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Scan not found")
         
     task = db.query(ScanTask).filter(ScanTask.scan_id == scan_id).first()
     db_violations = db.query(Violation).filter(Violation.scan_id == scan_id).all()
+    db_checks = db.query(ScanCheck).filter(ScanCheck.scan_id == scan_id).all()
     
     violations_resp = []
     for v in db_violations:
@@ -54,6 +52,35 @@ async def get_report(
     high = sum(1 for v in db_violations if v.severity == "HIGH")
     medium = sum(1 for v in db_violations if v.severity == "MEDIUM")
     
+    checks_resp = [
+        {
+            "check_id": c.check_id,
+            "rule_cited": c.rule_cited,
+            "result": c.result,
+            "confidence": c.confidence,
+            "description": c.description,
+        }
+        for c in db_checks
+    ]
+    total_checks_run = len(db_checks)
+    checks_passed = sum(1 for c in db_checks if c.result == "PASS")
+
+    # If cached response exists, enrich it with checks and return
+    if scan_id in _scan_store and "response" in _scan_store[scan_id]:
+        cached = _scan_store[scan_id]["response"]
+        if hasattr(cached, "model_dump"):
+            cached_dict = cached.model_dump()
+        elif hasattr(cached, "dict"):
+            cached_dict = cached.dict()
+        elif isinstance(cached, dict):
+            cached_dict = cached
+        else:
+            cached_dict = {}
+        cached_dict["total_checks_run"] = total_checks_run
+        cached_dict["checks_passed"] = checks_passed
+        cached_dict["checks"] = checks_resp
+        return cached_dict
+    
     return {
         "scan_id": scan_id,
         "status": task.status if task else "COMPLETED",
@@ -61,6 +88,9 @@ async def get_report(
         "overall_confidence": session.overall_confidence,
         "violation_count": {"critical": critical, "high": high, "medium": medium, "inconclusive": 0},
         "violations": violations_resp,
+        "total_checks_run": total_checks_run,
+        "checks_passed": checks_passed,
+        "checks": checks_resp,
         "declarations": {},
         "generated_at": session.created_at.isoformat() if session.created_at else None,
         "rule_version": session.rule_version,

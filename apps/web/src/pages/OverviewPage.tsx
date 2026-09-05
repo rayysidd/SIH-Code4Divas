@@ -44,22 +44,29 @@ const ErrorState: React.FC<{ message: string; onRetry: () => void }> = ({ messag
 export const OverviewPage: React.FC = () => {
   const user = useAuthStore((s) => s.user);
   const role = user?.role ?? 'INSPECTOR';
+  const isInspector = role === 'INSPECTOR';
   const navigate = useNavigate();
 
   const overviewQuery = useQuery({
-    queryKey: ['analytics', 'overview'],
-    queryFn: () => apiGet<{ total_scans: number; pass_rate: number; open_violations: number; avg_scan_time_seconds: number }>('/v1/analytics/overview'),
+    queryKey: ['analytics', 'overview', isInspector],
+    queryFn: () => apiGet<{ total_scans: number; pass_rate: number; open_violations: number; avg_scan_time_seconds: number }>(
+      `/v1/analytics/overview${isInspector ? '?mine=true' : ''}`
+    ),
     retry: 1,
   });
 
   const trendQuery = useQuery({
-    queryKey: ['analytics', 'compliance-trend'],
-    queryFn: () => apiGet<{ period_days: number; data: { date: string; compliance_rate: number }[] }>('/v1/analytics/compliance-trend?days=30'),
+    queryKey: ['analytics', 'compliance-trend', isInspector],
+    queryFn: () => apiGet<{ period_days: number; data: { date: string; compliance_rate: number }[] }>(
+      `/v1/analytics/compliance-trend?days=30${isInspector ? '&mine=true' : ''}`
+    ),
   });
 
   const topViolationsQuery = useQuery({
-    queryKey: ['analytics', 'top-violations'],
-    queryFn: () => apiGet<{ rule: string; description: string; count: number; percentage: number }[]>('/v1/analytics/top-violations'),
+    queryKey: ['analytics', 'top-violations', isInspector],
+    queryFn: () => apiGet<{ rule: string; description: string; count: number; percentage: number }[]>(
+      `/v1/analytics/top-violations${isInspector ? '?mine=true' : ''}`
+    ),
   });
 
   const categoryQuery = useQuery({

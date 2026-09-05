@@ -109,3 +109,26 @@ class ScanTask(Base):
     error       = Column(String, nullable=True)
     started_at  = Column(DateTime(timezone=True), server_default=func.now())
     completed_at= Column(DateTime(timezone=True), nullable=True)
+
+class ScanCheck(Base):
+    __tablename__ = "scan_checks"
+    id          = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    scan_id     = Column(String, ForeignKey("scan_sessions.scan_id"), nullable=False)
+    check_id    = Column(String, nullable=False)
+    rule_cited  = Column(String, nullable=False)
+    result      = Column(String, nullable=False)  # PASS or FAIL
+    confidence  = Column(Float, nullable=False)
+    description = Column(String, nullable=True)
+    created_at  = Column(DateTime(timezone=True), server_default=func.now())
+
+class BatchListingResult(Base):
+    __tablename__ = "batch_listing_results"
+    id             = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    batch_id       = Column(String, ForeignKey("batch_jobs.batch_id"), nullable=True)
+    listing_url    = Column(String, nullable=False)
+    index          = Column(Integer, nullable=True)
+    verdict        = Column(String, nullable=False)  # PASS or FAIL
+    missing_fields = Column(JSON, nullable=True)
+    checked_by     = Column(String, ForeignKey("users.user_id"), nullable=False)
+    checked_at     = Column(DateTime(timezone=True), server_default=func.now())
+

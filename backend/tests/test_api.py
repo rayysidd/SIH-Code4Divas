@@ -361,12 +361,13 @@ def test_font_size_table_i():
     
     # < 50cm2 -> 1.0mm
     assert get_min_font_height_mm(40.0) == 1.0
-    # 50 - 100cm2 -> 2.0mm
-    assert get_min_font_height_mm(75.0) == 2.0
-    # 100 - 500cm2 -> 4.0mm
-    assert get_min_font_height_mm(250.0) == 4.0
-    # > 500cm2 -> 6.0mm
-    assert get_min_font_height_mm(600.0) == 6.0
+    # 50 - 100cm2 -> 1.5mm
+    assert get_min_font_height_mm(75.0) == 1.5
+    # 100 - 500cm2 -> 2.5mm
+    assert get_min_font_height_mm(250.0) == 2.5
+    # > 500cm2 -> 4.0mm
+    assert get_min_font_height_mm(600.0) == 4.0
+
 
 def test_rule_6_10_ecommerce():
     """Test e-commerce mandatory declaration check (GSR 128(E))"""
@@ -384,6 +385,7 @@ def test_rule_6_10_ecommerce():
     )
     violations = [v["violation_id"] for v in result_fail["violations"]]
     assert "V008" in violations
+    assert any(c["check_id"] == "ECOMMERCE_COO_FILTER" and c["result"] == "FAIL" for c in result_fail.get("checks", []))
     
     # Imported, has filter -> should pass
     result_pass = evaluate_compliance(
@@ -393,3 +395,78 @@ def test_rule_6_10_ecommerce():
     )
     violations = [v["violation_id"] for v in result_pass["violations"]]
     assert "V008" not in violations
+    assert any(c["check_id"] == "ECOMMERCE_COO_FILTER" and c["result"] == "PASS" for c in result_pass.get("checks", []))
+
+
+# ── New Role Separation & Endpoint Tests (Parts A-E) ──────────────────────────
+
+def _get_ecom_token():
+    uid = str(uuid.uuid4())[:8]
+    client.post("/v1/auth/register", json={
+        "username": f"ecom_user_{uid}",
+        "password": "pass123",
+        "full_name": "Ecom Lead User",
+        "email": f"user_{uid}@amazon.in",
+    })
+    res = client.post("/v1/auth/login", json={
+        "username": f"ecom_user_{uid}",
+        "password": "pass123",
+    })
+    return res.json()["access_token"]
+
+
+def test_admin_can_generate_ecom_lead_invite_code():
+    token = _get_admin_token()
+    response = client.post(
+        "/v1/auth/invite-codes",
+        json={"role": "ECOM_LEAD", "district": "National"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 200
+    assert response.json()["role"] == "ECOM_LEAD"
+
+
+def test_ecom_check_single_listing_endpoint():
+    token = _get_ecom_token()
+    response = client.post(
+        "/v1/batch/listings/check",
+        json={"listing_url": "https://example.com/product"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert "verdict" in data
+    assert "missing_fields" in data
+    assert "listing_url" in data
+    assert data["listing_url"] == "https://example.com/product"
+
+
+def test_ecom_analytics_overview():
+    token = _get_ecom_token()
+    # Check one listing first so data exists
+    client.post(
+        "/v1/batch/listings/check",
+        json={"listing_url": "https://example.com/test-overview"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    response = client.get(
+        "/v1/analytics/ecom-overview",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert "total_checked" in data
+    assert data["total_checked"] >= 1
+    assert "pass_rate" in data
+    assert "recent_failures" in data
+
+
+def test_batch_listings_results():
+    admin_token = _get_admin_token()
+    response = client.get(
+        "/v1/batch/listings/nonexistent-batch-id/results",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert response.status_code == 200
+    assert response.json() == []
+

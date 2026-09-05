@@ -130,7 +130,7 @@ async def register(user_data: UserCreate, db: Session = Depends(get_db)):
 
 @router.post("/invite-codes", summary="Generate invite code (ADMIN only)", dependencies=[Depends(require_role("ADMIN"))])
 async def create_invite_code(body: InviteCodeCreate, current_user: TokenData = Depends(get_current_user), db: Session = Depends(get_db)):
-    valid_roles = {"INSPECTOR", "QA_MANAGER", "ADMIN"}
+    valid_roles = {"INSPECTOR", "QA_MANAGER", "ADMIN", "ECOM_LEAD"}
     if body.role not in valid_roles:
         raise HTTPException(status_code=400, detail=f"Invalid role. Must be one of: {', '.join(sorted(valid_roles))}")
 

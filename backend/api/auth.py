@@ -97,7 +97,7 @@ class UserCreate(BaseModel):
 
 
 class InviteCodeCreate(BaseModel):
-    role: str  # INSPECTOR | QA_MANAGER | ADMIN
+    role: str  # INSPECTOR | QA_MANAGER | ADMIN | ECOM_LEAD
     district: Optional[str] = None
 
 

@@ -55,6 +55,13 @@ class AuthState {
 class AuthNotifier extends StateNotifier<AuthState> {
   AuthNotifier() : super(AuthState.initial);
 
+  /// Reset loading state
+  void resetLoading() {
+    if (state.isLoading) {
+      state = state.copyWith(isLoading: false);
+    }
+  }
+
   /// Login with username and password
   Future<bool> login(String username, String password) async {
     state = state.copyWith(isLoading: true, error: null);
@@ -89,6 +96,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
         error: e.toString().replaceAll('Exception: ', ''),
       );
       return false;
+    } finally {
+      if (!state.isAuthenticated && state.isLoading) {
+        state = state.copyWith(isLoading: false);
+      }
     }
   }
 
@@ -127,31 +138,41 @@ class AuthNotifier extends StateNotifier<AuthState> {
         error: e.toString().replaceAll('Exception: ', ''),
       );
       return {'success': false};
+    } finally {
+      if (!state.isAuthenticated && state.isLoading) {
+        state = state.copyWith(isLoading: false);
+      }
     }
   }
 
   /// Logout — clear tokens and state
   Future<void> logout() async {
-    await SecureStorageService.clearAll();
+    try {
+      await SecureStorageService.clearAll();
+    } catch (_) {}
     ApiService.setToken('');
     state = AuthState.initial;
   }
 
   /// Rehydrate session from stored tokens
   Future<void> rehydrate() async {
-    state = state.copyWith(isLoading: true);
-
-    final accessToken = await SecureStorageService.getAccessToken();
-    if (accessToken == null || accessToken.isEmpty) {
-      state = AuthState.initial;
-      return;
-    }
-
-    ApiService.setToken(accessToken);
-
     try {
-      final profile = await ApiService.getMe();
-      final refreshToken = await SecureStorageService.getRefreshToken();
+      final accessToken = await SecureStorageService.getAccessToken().timeout(
+        const Duration(seconds: 2),
+        onTimeout: () => null,
+      );
+      if (accessToken == null || accessToken.isEmpty) {
+        state = AuthState.initial;
+        return;
+      }
+
+      ApiService.setToken(accessToken);
+
+      final profile = await ApiService.getMe().timeout(const Duration(seconds: 2));
+      final refreshToken = await SecureStorageService.getRefreshToken().timeout(
+        const Duration(seconds: 2),
+        onTimeout: () => null,
+      );
 
       state = AuthState(
         accessToken: accessToken,
@@ -163,16 +184,19 @@ class AuthNotifier extends StateNotifier<AuthState> {
         isLoading: false,
       );
     } catch (e) {
-      // Token expired — try refresh
-      final refreshToken = await SecureStorageService.getRefreshToken();
-      if (refreshToken != null) {
-        try {
-          final newTokens = await ApiService.refreshTokens(refreshToken);
+      // Token expired or server unreachable — try refresh
+      try {
+        final refreshToken = await SecureStorageService.getRefreshToken().timeout(
+          const Duration(seconds: 2),
+          onTimeout: () => null,
+        );
+        if (refreshToken != null && refreshToken.isNotEmpty) {
+          final newTokens = await ApiService.refreshTokens(refreshToken).timeout(const Duration(seconds: 2));
           await SecureStorageService.setAccessToken(newTokens['access_token']!);
           await SecureStorageService.setRefreshToken(newTokens['refresh_token']!);
           ApiService.setToken(newTokens['access_token']!);
 
-          final profile = await ApiService.getMe();
+          final profile = await ApiService.getMe().timeout(const Duration(seconds: 2));
           state = AuthState(
             accessToken: newTokens['access_token'],
             refreshToken: newTokens['refresh_token'],
@@ -183,11 +207,19 @@ class AuthNotifier extends StateNotifier<AuthState> {
             isLoading: false,
           );
           return;
-        } catch (_) {}
-      }
+        }
+      } catch (_) {}
 
-      // All failed — clear state
-      await logout();
+      // All failed — reset state safely
+      try {
+        await logout();
+      } catch (_) {
+        state = AuthState.initial;
+      }
+    } finally {
+      if (state.isLoading) {
+        state = state.copyWith(isLoading: false);
+      }
     }
   }
 

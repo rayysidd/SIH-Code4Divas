@@ -46,8 +46,20 @@ function getNavItems(role: string): NavItem[] {
         ...common,
         { to: '/dashboard/products', icon: Package, label: 'Products', section: 'Operations' },
         { to: '/dashboard/analytics', icon: ChartLine, label: 'Analytics', section: 'Insights' },
-        { to: '/dashboard/ecommerce', icon: Globe, label: 'E-Commerce' },
         { to: '/dashboard/batch', icon: Stack, label: 'Batch Audit' },
+        { to: '/dashboard/settings', icon: Gear, label: 'Settings', section: 'System' },
+      ];
+
+    case 'ECOM_LEAD':
+      return [
+        { to: '/dashboard/ecom/overview', icon: House, label: 'Overview' },
+        { to: '/dashboard/ecommerce', icon: Globe, label: 'E-Commerce', section: 'Marketplace' },
+        { to: '/dashboard/settings', icon: Gear, label: 'Settings', section: 'System' },
+      ];
+
+    case 'CITIZEN':
+      return [
+        { to: '/dashboard/citizen-notice', icon: Warning, label: 'Citizen Reporting' },
         { to: '/dashboard/settings', icon: Gear, label: 'Settings', section: 'System' },
       ];
 

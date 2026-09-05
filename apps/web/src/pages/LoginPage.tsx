@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Eye, EyeSlash, CircleNotch, User, Lock, UserCircle } from '@phosphor-icons/react';
 import { useAuthStore } from '../store/authStore';
 import { useNavigate, Link } from 'react-router-dom';
+import { homeRouteForRole } from '../lib/roleRoutes';
 
 const DEMO_ACCOUNTS = [
   { username: 'admin', password: 'admin123', role: 'ADMIN', name: 'System Admin' },
@@ -24,7 +25,8 @@ export const LoginPage: React.FC = () => {
 
     try {
       await login(username.trim(), password);
-      navigate('/dashboard', { replace: true });
+      const role = useAuthStore.getState().user?.role;
+      navigate(homeRouteForRole(role), { replace: true });
     } catch {
       // Error is already set in the store
     }

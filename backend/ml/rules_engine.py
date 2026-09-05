@@ -120,6 +120,7 @@ def evaluate_compliance(
         image_path: Path to original image (reserved for future use).
     """
     violations = []
+    checks = []
     priority_score = 0
 
     # Determine unit type for font table selection
@@ -147,8 +148,23 @@ def evaluate_compliance(
                 "penalty_range": "First offence: up to ₹25,000 — Section 36(1), LMA 2009",
             }
         )
+        checks.append({
+            "check_id": "MRP_PRESENCE",
+            "rule_cited": "Rule 6(1)(e), LMPC Rules 2011",
+            "result": "FAIL",
+            "confidence": 0.95,
+            "description": "MRP missing from principal display panel.",
+        })
         priority_score += 30
     else:
+        checks.append({
+            "check_id": "MRP_PRESENCE",
+            "rule_cited": "Rule 6(1)(e), LMPC Rules 2011",
+            "result": "PASS",
+            "confidence": 0.95,
+            "description": f"MRP declaration found: {mrp.get('raw_text', 'MRP present')}",
+        })
+
         # V002: Check taxes included suffix
         if not mrp.get("taxes_included_suffix"):
             violations.append(
@@ -162,24 +178,53 @@ def evaluate_compliance(
                     "penalty_range": "First offence: up to ₹25,000 — Section 36(1), LMA 2009",
                 }
             )
+            checks.append({
+                "check_id": "MRP_TAX_INCLUSION",
+                "rule_cited": "Rule 6(1)(e), LMPC Rules 2011 as amended by GSR 629(E)",
+                "result": "FAIL",
+                "confidence": 0.90,
+                "description": "MRP declaration missing required 'inclusive of all taxes' wording",
+            })
             priority_score += 20
+        else:
+            checks.append({
+                "check_id": "MRP_TAX_INCLUSION",
+                "rule_cited": "Rule 6(1)(e), LMPC Rules 2011 as amended by GSR 629(E)",
+                "result": "PASS",
+                "confidence": 0.95,
+                "description": "MRP includes 'inclusive of all taxes'",
+            })
 
         # V015: Check currency symbol ₹ or Rs.
-        if not mrp.get("has_currency_symbol"):
-            raw = (mrp.get("raw_text") or "").lower()
-            if not re.search(r"[₹]|rs\.?", raw, re.IGNORECASE):
-                violations.append(
-                    {
-                        "violation_id": "V015",
-                        "rule_citation": "Rule 6(1)(e), LMPC Rules 2011",
-                        "description": "MRP declaration missing currency symbol (₹ or Rs.).",
-                        "severity": "MEDIUM",
-                        "measured_value": mrp.get("raw_text", ""),
-                        "required_format": "MRP ₹XX.XX or MRP Rs. XX.XX",
-                        "penalty_range": "Notice for rectification — Rule 32",
-                    }
-                )
-                priority_score += 10
+        has_curr = mrp.get("has_currency_symbol") or bool(re.search(r"[₹]|rs\.?", (mrp.get("raw_text") or "").lower(), re.IGNORECASE))
+        if not has_curr:
+            violations.append(
+                {
+                    "violation_id": "V015",
+                    "rule_citation": "Rule 6(1)(e), LMPC Rules 2011",
+                    "description": "MRP declaration missing currency symbol (₹ or Rs.).",
+                    "severity": "MEDIUM",
+                    "measured_value": mrp.get("raw_text", ""),
+                    "required_format": "MRP ₹XX.XX or MRP Rs. XX.XX",
+                    "penalty_range": "Notice for rectification — Rule 32",
+                }
+            )
+            checks.append({
+                "check_id": "MRP_CURRENCY_SYMBOL",
+                "rule_cited": "Rule 6(1)(e), LMPC Rules 2011",
+                "result": "FAIL",
+                "confidence": 0.90,
+                "description": "MRP declaration missing currency symbol (₹ or Rs.).",
+            })
+            priority_score += 10
+        else:
+            checks.append({
+                "check_id": "MRP_CURRENCY_SYMBOL",
+                "rule_cited": "Rule 6(1)(e), LMPC Rules 2011",
+                "result": "PASS",
+                "confidence": 0.95,
+                "description": "MRP contains valid currency symbol (₹ or Rs.)",
+            })
 
         # V003: MRP font size — three-way: measured-fail, measured-pass, or inconclusive
         font_measurement = mrp.get("font_measurement", {})
@@ -199,6 +244,13 @@ def evaluate_compliance(
                     "penalty_range": "N/A — flagged for manual inspection",
                 }
             )
+            checks.append({
+                "check_id": "MRP_FONT_SIZE",
+                "rule_cited": "Rule 7 Table I, LMPC Rules 2011",
+                "result": "FAIL",
+                "confidence": 0.70,
+                "description": "MRP font size could not be verified — no scale reference found.",
+            })
         elif actual_height is not None and actual_height < min_req_height:
             violations.append(
                 {
@@ -211,7 +263,22 @@ def evaluate_compliance(
                     "penalty_range": "Notice for rectification — Rule 32",
                 }
             )
+            checks.append({
+                "check_id": "MRP_FONT_SIZE",
+                "rule_cited": "Rule 7 Table I, LMPC Rules 2011",
+                "result": "FAIL",
+                "confidence": 0.90,
+                "description": f"MRP font size ({actual_height}mm) is smaller than required minimum ({min_req_height}mm).",
+            })
             priority_score += 20
+        else:
+            checks.append({
+                "check_id": "MRP_FONT_SIZE",
+                "rule_cited": "Rule 7 Table I, LMPC Rules 2011",
+                "result": "PASS",
+                "confidence": 0.95,
+                "description": f"MRP font size ({actual_height}mm) meets required minimum ({min_req_height}mm).",
+            })
 
     # ── 2. Net Quantity — Rule 6(1)(b) ───────────────────────────────────
     net_qty = declarations.get("NET_QUANTITY", {})
@@ -227,8 +294,23 @@ def evaluate_compliance(
                 "penalty_range": "First offence: up to ₹25,000 — Section 36(1), LMA 2009",
             }
         )
+        checks.append({
+            "check_id": "NET_QUANTITY_PRESENCE",
+            "rule_cited": "Rule 6(1)(b), LMPC Rules 2011",
+            "result": "FAIL",
+            "confidence": 0.95,
+            "description": "Net quantity declaration is missing.",
+        })
         priority_score += 30
     else:
+        checks.append({
+            "check_id": "NET_QUANTITY_PRESENCE",
+            "rule_cited": "Rule 6(1)(b), LMPC Rules 2011",
+            "result": "PASS",
+            "confidence": 0.95,
+            "description": f"Net quantity declaration found: {net_qty.get('raw_text', 'Net quantity present')}",
+        })
+
         # V005: Net quantity font size
         font_measurement = net_qty.get("font_measurement", {})
         actual_height = net_qty.get("physical_size_mm")
@@ -249,6 +331,13 @@ def evaluate_compliance(
                     "penalty_range": "N/A — flagged for manual inspection",
                 }
             )
+            checks.append({
+                "check_id": "NET_QUANTITY_FONT_SIZE",
+                "rule_cited": f"Rule 7 {table_label}, LMPC Rules 2011",
+                "result": "FAIL",
+                "confidence": 0.70,
+                "description": "Net quantity font size could not be verified — no scale reference found.",
+            })
         elif actual_height is not None and actual_height < min_req_height:
             violations.append(
                 {
@@ -261,7 +350,22 @@ def evaluate_compliance(
                     "penalty_range": "Notice for rectification — Rule 32",
                 }
             )
+            checks.append({
+                "check_id": "NET_QUANTITY_FONT_SIZE",
+                "rule_cited": f"Rule 7 {table_label}, LMPC Rules 2011",
+                "result": "FAIL",
+                "confidence": 0.90,
+                "description": f"Net quantity font size ({actual_height}mm) is smaller than required minimum ({min_req_height}mm).",
+            })
             priority_score += 20
+        else:
+            checks.append({
+                "check_id": "NET_QUANTITY_FONT_SIZE",
+                "rule_cited": f"Rule 7 {table_label}, LMPC Rules 2011",
+                "result": "PASS",
+                "confidence": 0.95,
+                "description": f"Net quantity font size ({actual_height}mm) meets required minimum ({min_req_height}mm).",
+            })
 
     # ── 3. Mfg Date — Rule 6(1)(d) ──────────────────────────────────────
     mfg = declarations.get("MFG_DATE", {})
@@ -277,38 +381,92 @@ def evaluate_compliance(
                 "penalty_range": "First offence: up to ₹10,000",
             }
         )
+        checks.append({
+            "check_id": "MFG_DATE_PRESENCE",
+            "rule_cited": "Rule 6(1)(d), LMPC Rules 2011",
+            "result": "FAIL",
+            "confidence": 0.95,
+            "description": "Month and year of manufacture/packing missing.",
+        })
         priority_score += 20
+    else:
+        checks.append({
+            "check_id": "MFG_DATE_PRESENCE",
+            "rule_cited": "Rule 6(1)(d), LMPC Rules 2011",
+            "result": "PASS",
+            "confidence": 0.95,
+            "description": f"Mfg date found: {mfg.get('value', mfg.get('raw_text', 'present'))}",
+        })
 
     # ── 4. Country of Origin — Rule 6(1)(j) & Rule 6(10A) ───────────────
     coo = declarations.get("COUNTRY_OF_ORIGIN", {})
-    if is_imported and not coo.get("present"):
-        violations.append(
-            {
-                "violation_id": "V007",
-                "rule_citation": "Rule 6(1)(j), LMPC Rules 2011",
+    if is_imported:
+        if not coo.get("present"):
+            violations.append(
+                {
+                    "violation_id": "V007",
+                    "rule_citation": "Rule 6(1)(j), LMPC Rules 2011",
+                    "description": "Country of origin is mandatory for imported products but is missing.",
+                    "severity": "CRITICAL",
+                    "measured_value": "Missing",
+                    "required_format": "Made in [Country]",
+                    "penalty_range": "Seizure of goods — Section 15, LMA 2009",
+                }
+            )
+            checks.append({
+                "check_id": "COUNTRY_OF_ORIGIN",
+                "rule_cited": "Rule 6(1)(j), LMPC Rules 2011",
+                "result": "FAIL",
+                "confidence": 0.95,
                 "description": "Country of origin is mandatory for imported products but is missing.",
-                "severity": "CRITICAL",
-                "measured_value": "Missing",
-                "required_format": "Made in [Country]",
-                "penalty_range": "Seizure of goods — Section 15, LMA 2009",
-            }
-        )
-        priority_score += 30
+            })
+            priority_score += 30
+        else:
+            checks.append({
+                "check_id": "COUNTRY_OF_ORIGIN",
+                "rule_cited": "Rule 6(1)(j), LMPC Rules 2011",
+                "result": "PASS",
+                "confidence": 0.95,
+                "description": f"Country of origin declared: {coo.get('value', 'present')}",
+            })
 
-    # E-Commerce Amendment GSR 128(E) 2026
-    if is_imported and not ecommerce_has_coo_filter:
-        violations.append(
-            {
-                "violation_id": "V008",
-                "rule_citation": "Rule 6(10A), LMPC Rules 2011 (GSR 128(E), 13.02.2026)",
+        # E-Commerce Amendment GSR 128(E) 2026
+        if not ecommerce_has_coo_filter:
+            violations.append(
+                {
+                    "violation_id": "V008",
+                    "rule_citation": "Rule 6(10A), LMPC Rules 2011 (GSR 128(E), 13.02.2026)",
+                    "description": "Country-of-origin searchable filter mandatory on e-commerce platforms for imported products",
+                    "severity": "HIGH",
+                    "measured_value": "Filter missing",
+                    "required_format": "Search filter present",
+                    "penalty_range": "Notice to E-commerce entity",
+                }
+            )
+            checks.append({
+                "check_id": "ECOMMERCE_COO_FILTER",
+                "rule_cited": "Rule 6(10A), LMPC Rules 2011 (GSR 128(E), 13.02.2026)",
+                "result": "FAIL",
+                "confidence": 0.95,
                 "description": "Country-of-origin searchable filter mandatory on e-commerce platforms for imported products",
-                "severity": "HIGH",
-                "measured_value": "Filter missing",
-                "required_format": "Search filter present",
-                "penalty_range": "Notice to E-commerce entity",
-            }
-        )
-        priority_score += 20
+            })
+            priority_score += 20
+        else:
+            checks.append({
+                "check_id": "ECOMMERCE_COO_FILTER",
+                "rule_cited": "Rule 6(10A), LMPC Rules 2011 (GSR 128(E), 13.02.2026)",
+                "result": "PASS",
+                "confidence": 0.95,
+                "description": "Search filter present for country-of-origin",
+            })
+    else:
+        checks.append({
+            "check_id": "COUNTRY_OF_ORIGIN",
+            "rule_cited": "Rule 6(1)(j), LMPC Rules 2011",
+            "result": "PASS",
+            "confidence": 0.95,
+            "description": "Domestic product (country of origin compliant)",
+        })
 
     # ── 5. Manufacturer Name / Address — Rule 6(1)(a) ────────────────────
     mfr_name = declarations.get("MANUFACTURER_NAME", {})
@@ -343,7 +501,22 @@ def evaluate_compliance(
                 "penalty_range": "First offence: up to ₹25,000 — Section 36(1), LMA 2009",
             }
         )
+        checks.append({
+            "check_id": "MANUFACTURER_INFO",
+            "rule_cited": "Rule 6(1)(a), LMPC Rules 2011",
+            "result": "FAIL",
+            "confidence": 0.90,
+            "description": "Manufacturer/packer name and address (with PIN code) missing or incomplete.",
+        })
         priority_score += 30
+    else:
+        checks.append({
+            "check_id": "MANUFACTURER_INFO",
+            "rule_cited": "Rule 6(1)(a), LMPC Rules 2011",
+            "result": "PASS",
+            "confidence": 0.95,
+            "description": "Manufacturer name and address with valid PIN code found.",
+        })
 
     # ── 6. Generic Name — Rule 6(1)(b) ──────────────────────────────────
     generic = declarations.get("GENERIC_NAME", {})
@@ -359,7 +532,22 @@ def evaluate_compliance(
                 "penalty_range": "First offence: up to ₹10,000",
             }
         )
+        checks.append({
+            "check_id": "GENERIC_NAME_PRESENCE",
+            "rule_cited": "Rule 6(1)(b), LMPC Rules 2011",
+            "result": "FAIL",
+            "confidence": 0.95,
+            "description": "Generic or common name of the commodity is missing from the label.",
+        })
         priority_score += 15
+    else:
+        checks.append({
+            "check_id": "GENERIC_NAME_PRESENCE",
+            "rule_cited": "Rule 6(1)(b), LMPC Rules 2011",
+            "result": "PASS",
+            "confidence": 0.95,
+            "description": f"Generic name found: {generic.get('value', generic.get('raw_text', 'present'))}",
+        })
 
     # ── 7. Best Before Date — Rule 6(1)(f) ──────────────────────────────
     # Only applicable for food and cosmetics categories
@@ -378,7 +566,22 @@ def evaluate_compliance(
                     "penalty_range": "Notice for rectification — Rule 32",
                 }
             )
+            checks.append({
+                "check_id": "BEST_BEFORE_DATE",
+                "rule_cited": "Rule 6(1)(f), LMPC Rules 2011",
+                "result": "FAIL",
+                "confidence": 0.95,
+                "description": "Best before / expiry date is missing (required for food and cosmetics).",
+            })
             priority_score += 10
+        else:
+            checks.append({
+                "check_id": "BEST_BEFORE_DATE",
+                "rule_cited": "Rule 6(1)(f), LMPC Rules 2011",
+                "result": "PASS",
+                "confidence": 0.95,
+                "description": f"Best before / expiry date found: {bb.get('value', bb.get('raw_text', 'present'))}",
+            })
 
     # ── 8. Customer Care — Rule 6(1)(h) GSR 629(E) ─────────────────────
     care = declarations.get("CUSTOMER_CARE", {})
@@ -394,6 +597,13 @@ def evaluate_compliance(
                 "penalty_range": "First offence: up to ₹10,000",
             }
         )
+        checks.append({
+            "check_id": "CUSTOMER_CARE",
+            "rule_cited": "Rule 6(1)(h), LMPC Rules 2011 (GSR 629(E))",
+            "result": "FAIL",
+            "confidence": 0.95,
+            "description": "Customer care / consumer complaint contact information is missing.",
+        })
         priority_score += 15
     else:
         # Validate format
@@ -419,7 +629,22 @@ def evaluate_compliance(
                     "penalty_range": "Notice for rectification",
                 }
             )
+            checks.append({
+                "check_id": "CUSTOMER_CARE",
+                "rule_cited": "Rule 6(1)(h), LMPC Rules 2011 (GSR 629(E))",
+                "result": "FAIL",
+                "confidence": 0.90,
+                "description": f"Customer care contact '{value}' does not match valid format.",
+            })
             priority_score += 5
+        else:
+            checks.append({
+                "check_id": "CUSTOMER_CARE",
+                "rule_cited": "Rule 6(1)(h), LMPC Rules 2011 (GSR 629(E))",
+                "result": "PASS",
+                "confidence": 0.95,
+                "description": f"Customer care contact valid: {care.get('value', '')}",
+            })
 
     # ── 9. Veg / Non-Veg Symbol — FSSAI / Rule 6(1)(j) ─────────────────
     if product_category in food_cosmetic_categories:
@@ -436,7 +661,22 @@ def evaluate_compliance(
                     "penalty_range": "Notice for rectification — FSSAI Regulation 2.4.5",
                 }
             )
+            checks.append({
+                "check_id": "VEG_NONVEG_SYMBOL",
+                "rule_cited": "FSSAI (Packaging and Labelling) Regulations / Rule 6(1)(j)",
+                "result": "FAIL",
+                "confidence": 0.90,
+                "description": "Veg/Non-veg symbol (green/red dot) not detected on label.",
+            })
             priority_score += 10
+        else:
+            checks.append({
+                "check_id": "VEG_NONVEG_SYMBOL",
+                "rule_cited": "FSSAI (Packaging and Labelling) Regulations / Rule 6(1)(j)",
+                "result": "PASS",
+                "confidence": 0.95,
+                "description": f"Veg/Non-veg symbol detected: {veg.get('symbol_type', 'detected')}",
+            })
 
     # ── 10. Unit Sale Price — Rule 6(11) GSR 226(E) ─────────────────────
     usp = declarations.get("UNIT_SALE_PRICE", {})
@@ -476,6 +716,13 @@ def evaluate_compliance(
                 "penalty_range": "First offence: up to ₹10,000",
             }
         )
+        checks.append({
+            "check_id": "UNIT_SALE_PRICE",
+            "rule_cited": "Rule 6(11), LMPC Rules 2011 (GSR 226(E))",
+            "result": "FAIL",
+            "confidence": 0.95,
+            "description": "Unit sale price (USP) is missing from the label.",
+        })
         priority_score += 15
     elif should_check_usp and usp.get("present") and usp.get("computed"):
         # Validate computed USP = MRP / NET_QUANTITY ± 0.02
@@ -496,7 +743,38 @@ def evaluate_compliance(
                         "penalty_range": "Notice for rectification",
                     }
                 )
+                checks.append({
+                    "check_id": "UNIT_SALE_PRICE",
+                    "rule_cited": "Rule 6(11), LMPC Rules 2011 (GSR 226(E))",
+                    "result": "FAIL",
+                    "confidence": 0.90,
+                    "description": f"Unit sale price (₹{actual_usp}) does not match MRP/Qty (₹{round(expected, 4)}).",
+                })
                 priority_score += 5
+            else:
+                checks.append({
+                    "check_id": "UNIT_SALE_PRICE",
+                    "rule_cited": "Rule 6(11), LMPC Rules 2011 (GSR 226(E))",
+                    "result": "PASS",
+                    "confidence": 0.95,
+                    "description": f"Unit sale price valid: ₹{actual_usp}",
+                })
+        else:
+            checks.append({
+                "check_id": "UNIT_SALE_PRICE",
+                "rule_cited": "Rule 6(11), LMPC Rules 2011 (GSR 226(E))",
+                "result": "PASS",
+                "confidence": 0.95,
+                "description": "Unit sale price declared",
+            })
+    elif should_check_usp and usp.get("present"):
+        checks.append({
+            "check_id": "UNIT_SALE_PRICE",
+            "rule_cited": "Rule 6(11), LMPC Rules 2011 (GSR 226(E))",
+            "result": "PASS",
+            "confidence": 0.95,
+            "description": "Unit sale price declared",
+        })
 
     # ── 11. Net Quantity Placement — Rule 8(1) ──────────────────────────
     if (
@@ -520,7 +798,22 @@ def evaluate_compliance(
                     "penalty_range": "Notice for rectification — Rule 32",
                 }
             )
+            checks.append({
+                "check_id": "NET_QUANTITY_PLACEMENT",
+                "rule_cited": "Rule 8(1), LMPC Rules 2011",
+                "result": "FAIL",
+                "confidence": 0.90,
+                "description": "Net quantity declaration is not in the lower 30% of the Principal Display Panel.",
+            })
             priority_score += 10
+        else:
+            checks.append({
+                "check_id": "NET_QUANTITY_PLACEMENT",
+                "rule_cited": "Rule 8(1), LMPC Rules 2011",
+                "result": "PASS",
+                "confidence": 0.95,
+                "description": "Net quantity declaration located in lower 30% of PDP.",
+            })
 
     # ── Final scoring ────────────────────────────────────────────────────
     # Cap score at 100
@@ -542,6 +835,7 @@ def evaluate_compliance(
     return {
         "status": overall_status,
         "violations": violations,
+        "checks": checks,
         "inspection_priority_score": priority_score,
         "min_required_font_height_mm": min_req_height,
         "font_table_used": "Table II" if unit_type == "LENGTH_AREA_NUMBER" else "Table I",

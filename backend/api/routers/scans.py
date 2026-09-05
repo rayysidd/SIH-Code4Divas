@@ -33,10 +33,11 @@ from ..schemas import (
     CrossChannelRequest,
     CrossChannelResponse,
     CrossChannelField,
+    CheckItemResponse,
 )
 from ..auth import get_current_user, TokenData
 from ..database import get_db, SessionLocal
-from ..models import ScanSession, ScanTask, Violation
+from ..models import ScanSession, ScanTask, Violation, ScanCheck
 
 router = APIRouter(prefix="/check", tags=["Compliance Checks"])
 
@@ -202,6 +203,18 @@ def _run_pipeline(scan_id: str, temp_img_path: str, rule_version: str, user_id: 
                 )
             )
 
+        for chk in compliance_result.get("checks", []):
+            db_check = ScanCheck(
+                id=str(uuid.uuid4()),
+                scan_id=scan_id,
+                check_id=chk.get("check_id", "CHECK"),
+                rule_cited=chk.get("rule_cited", "Rule"),
+                result=chk.get("result", "PASS"),
+                confidence=float(chk.get("confidence", 0.90)),
+                description=chk.get("description"),
+            )
+            db.add(db_check)
+
         status_str = compliance_result["status"]
         if status_str == "PASS":
             verdict = VerdictEnum.PASS
@@ -225,12 +238,26 @@ def _run_pipeline(scan_id: str, temp_img_path: str, rule_version: str, user_id: 
             medium=sum(1 for v in violations if v.severity == SeverityEnum.MEDIUM),
         )
 
+        checks_items = [
+            CheckItemResponse(
+                check_id=c.get("check_id", "CHECK"),
+                rule_cited=c.get("rule_cited", "Rule"),
+                result=c.get("result", "PASS"),
+                confidence=float(c.get("confidence", 0.90)),
+                description=c.get("description"),
+            )
+            for c in compliance_result.get("checks", [])
+        ]
+
         result = ScanResponse(
             scan_id=scan_id,
             overall_verdict=verdict,
             overall_confidence=overall_confidence,
             violation_count=violation_count,
             violations=violations,
+            total_checks_run=len(checks_items),
+            checks_passed=sum(1 for c in checks_items if c.result == "PASS"),
+            checks=checks_items,
             annotated_image_url=f"/static/annotated/{scan_id}.jpg",
             pdp_area_cm2=pdp_area,
             pdp_area_method=pdp_area_method,
@@ -354,12 +381,19 @@ async def check_label(
             img.save(tf.name, format="JPEG", quality=95)
             temp_img_path = tf.name
 
-    # Try to use Celery for async processing; fall back to BackgroundTasks
+    # Try to use Celery for async processing if Redis is running; fall back to BackgroundTasks immediately
+    use_celery = False
     try:
-        from workers.tasks.scan_task import run_scan_pipeline
-        run_scan_pipeline.delay(scan_id, temp_img_path, rule_version, current_user.user_id)
+        from workers.celery_app import is_redis_available
+        if is_redis_available():
+            from workers.tasks.scan_task import run_scan_pipeline
+            run_scan_pipeline.delay(scan_id, temp_img_path, rule_version, current_user.user_id)
+            use_celery = True
     except Exception:
-        # Celery/Redis not available — fall back to FastAPI BackgroundTasks
+        use_celery = False
+
+    if not use_celery:
+        # Celery/Redis not available — run immediately via FastAPI BackgroundTasks without 20s hang
         background_tasks.add_task(
             _run_pipeline, scan_id, temp_img_path, rule_version, current_user.user_id
         )
@@ -435,7 +469,66 @@ async def check_label_result(
     if scan_id in _scan_store and "response" in _scan_store[scan_id]:
         return _scan_store[scan_id]["response"]
 
-    raise HTTPException(status_code=404, detail="Scan result not found in cache")
+    session = db.query(ScanSession).filter(ScanSession.scan_id == scan_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Scan result not found")
+
+    db_violations = db.query(Violation).filter(Violation.scan_id == scan_id).all()
+    violations_resp = [
+        ViolationResponse(
+            violation_id=v.violation_id,
+            violation_code=v.violation_code,
+            check_id=v.check_id,
+            rule_cited=v.rule_cited,
+            severity=SeverityEnum(v.severity) if v.severity in SeverityEnum.__members__ else SeverityEnum.MEDIUM,
+            description=v.description,
+            confidence=v.confidence,
+            measured_value=v.measured_value,
+            required_value=v.required_value,
+        )
+        for v in db_violations
+    ]
+
+    db_checks = db.query(ScanCheck).filter(ScanCheck.scan_id == scan_id).all()
+    checks_resp = [
+        CheckItemResponse(
+            check_id=c.check_id,
+            rule_cited=c.rule_cited,
+            result=c.result,
+            confidence=c.confidence,
+            description=c.description,
+        )
+        for c in db_checks
+    ]
+
+    vc = ViolationCountSummary(
+        critical=sum(1 for v in db_violations if v.severity == "CRITICAL"),
+        high=sum(1 for v in db_violations if v.severity == "HIGH"),
+        medium=sum(1 for v in db_violations if v.severity == "MEDIUM"),
+        inconclusive=sum(1 for v in db_violations if v.severity == "INCONCLUSIVE"),
+    )
+
+    verdict_enum = VerdictEnum.INCONCLUSIVE
+    if session.overall_verdict in VerdictEnum.__members__:
+        verdict_enum = VerdictEnum(session.overall_verdict)
+    elif session.overall_verdict == "PASS":
+        verdict_enum = VerdictEnum.PASS
+    elif session.overall_verdict == "FAIL":
+        verdict_enum = VerdictEnum.FAIL
+
+    return ScanResponse(
+        scan_id=scan_id,
+        status=task.status,
+        overall_verdict=verdict_enum,
+        overall_confidence=session.overall_confidence or 1.0,
+        violation_count=vc,
+        violations=violations_resp,
+        total_checks_run=len(db_checks),
+        checks_passed=sum(1 for c in db_checks if c.result == "PASS"),
+        checks=checks_resp,
+        annotated_image_url=session.annotated_image_url,
+        pdp_area_cm2=session.pdp_area_cm2,
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════

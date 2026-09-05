@@ -23,6 +23,8 @@ import { UserManagementPage } from './pages/admin/UserManagementPage';
 import { AuditLogPage } from './pages/admin/AuditLogPage';
 import { RulesVersionPage } from './pages/admin/RulesVersionPage';
 import { DistrictAnalyticsPage } from './pages/admin/DistrictAnalyticsPage';
+import { EcomOverviewPage } from './pages/EcomOverviewPage';
+import { CitizenNoticePage } from './pages/CitizenNoticePage';
 import './index.css';
 
 const queryClient = new QueryClient({
@@ -75,6 +77,8 @@ const App: React.FC = () => {
           <Route element={<ProtectedRoute />}>
             <Route element={<DashboardLayout />}>
               <Route path="/dashboard" element={<OverviewPage />} />
+              <Route path="/dashboard/ecom/overview" element={<EcomOverviewPage />} />
+              <Route path="/dashboard/citizen-notice" element={<CitizenNoticePage />} />
               <Route path="/dashboard/products" element={<ProductsPage />} />
               <Route path="/dashboard/violations" element={<ViolationsPage />} />
               <Route path="/dashboard/ecommerce" element={<EcommercePage />} />

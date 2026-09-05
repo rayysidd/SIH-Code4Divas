@@ -39,7 +39,7 @@ def run_scan_pipeline(
     image generation, and writes results back to the DB.
     """
     from api.database import SessionLocal
-    from api.models import ScanSession, ScanTask, Violation
+    from api.models import ScanSession, ScanTask, Violation, ScanCheck
     from api.schemas import VerdictEnum, SeverityEnum
 
     db = SessionLocal()
@@ -133,6 +133,19 @@ def run_scan_pipeline(
             db.add(db_violation)
             confidences.append(confidence)
 
+        # 4b. Write scan checks (PASS and FAIL) to DB
+        for chk in compliance_result.get("checks", []):
+            db_check = ScanCheck(
+                id=str(uuid.uuid4()),
+                scan_id=scan_id,
+                check_id=chk.get("check_id", "CHECK"),
+                rule_cited=chk.get("rule_cited", "Rule"),
+                result=chk.get("result", "PASS"),
+                confidence=float(chk.get("confidence", 0.90)),
+                description=chk.get("description"),
+            )
+            db.add(db_check)
+
         # 5. Update scan session
         status_str = compliance_result["status"]
         if status_str == "PASS":
@@ -212,6 +225,72 @@ def _detect_product_category_celery(declarations: dict) -> str:
     return "GENERAL"
 
 
+def evaluate_listing_url(url: str) -> dict:
+    """
+    Scrapes an e-commerce listing URL and evaluates it for mandatory LMPC declarations.
+    Returns:
+        {
+            "verdict": "PASS" | "FAIL",
+            "missing_fields": List[str]
+        }
+    """
+    import httpx
+    from bs4 import BeautifulSoup
+
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; LabelLens/1.0)"}
+    try:
+        response = httpx.get(
+            url, headers=headers, timeout=15, follow_redirects=True
+        )
+        soup = BeautifulSoup(response.text, "html.parser")
+        page_text = soup.get_text(separator=" ", strip=True).lower()
+    except Exception as e:
+        logger.warning(f"Failed to fetch {url}: {e}")
+        return {
+            "verdict": "FAIL",
+            "missing_fields": [
+                "MRP", "NET_QUANTITY", "COUNTRY_OF_ORIGIN",
+                "MANUFACTURER", "GENERIC_NAME", "MFG_DATE", "CUSTOMER_CARE"
+            ],
+        }
+
+    checks = {
+        "MRP": any(
+            kw in page_text
+            for kw in ["mrp", "maximum retail price", "incl. of all taxes"]
+        ),
+        "NET_QUANTITY": any(
+            kw in page_text
+            for kw in ["net qty", "net weight", "net wt", "net quantity"]
+        ),
+        "COUNTRY_OF_ORIGIN": any(
+            kw in page_text
+            for kw in ["country of origin", "made in", "product of"]
+        ),
+        "MANUFACTURER": any(
+            kw in page_text
+            for kw in ["manufactured by", "mfd. by", "packed by", "marketed by"]
+        ),
+        "GENERIC_NAME": len(page_text) > 50,  # basic presence heuristic
+        "MFG_DATE": any(
+            kw in page_text
+            for kw in ["mfg", "manufactured", "date of manufacture"]
+        ),
+        "CUSTOMER_CARE": any(
+            kw in page_text
+            for kw in ["customer care", "consumer care", "helpline", "1800"]
+        ),
+    }
+
+    missing = [k for k, v in checks.items() if not v]
+    verdict = "PASS" if not missing else "FAIL"
+
+    return {
+        "verdict": verdict,
+        "missing_fields": missing,
+    }
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Task 2: Batch listing scraper (FIX 6)
 # ═══════════════════════════════════════════════════════════════════════════
@@ -223,70 +302,46 @@ def process_batch_listing(self, batch_id: str, listing_url: str, index: int):
     Scrapes one e-commerce listing URL and checks it for LMPC compliance.
 
     Called as part of a Celery group from the batch endpoint. Each URL is
-    processed independently and the BatchJob progress is updated atomically.
+    processed independently, BatchListingResult is recorded, and BatchJob
+    progress is updated atomically.
     """
     from api.database import SessionLocal
-    from api.models import BatchJob
+    from api.models import BatchJob, BatchListingResult
 
     db = SessionLocal()
     try:
-        import httpx
-        from bs4 import BeautifulSoup
+        eval_result = evaluate_listing_url(listing_url)
+        verdict = eval_result["verdict"]
+        missing_fields = eval_result["missing_fields"]
 
-        # Fetch the listing page
-        headers = {"User-Agent": "Mozilla/5.0 (compatible; LabelLens/1.0)"}
-        response = httpx.get(
-            listing_url, headers=headers, timeout=15, follow_redirects=True
+        job = db.query(BatchJob).filter(BatchJob.batch_id == batch_id).first()
+        checked_by = job.submitted_by if job else "system"
+
+        listing_result = BatchListingResult(
+            id=str(uuid.uuid4()),
+            batch_id=batch_id,
+            listing_url=listing_url,
+            index=index,
+            verdict=verdict,
+            missing_fields=missing_fields,
+            checked_by=checked_by,
+            checked_at=datetime.utcnow(),
         )
-        soup = BeautifulSoup(response.text, "html.parser")
-        page_text = soup.get_text(separator=" ", strip=True).lower()
-
-        # Check for required LMPC fields on the listing page
-        checks = {
-            "MRP": any(
-                kw in page_text
-                for kw in ["mrp", "maximum retail price", "incl. of all taxes"]
-            ),
-            "NET_QUANTITY": any(
-                kw in page_text
-                for kw in ["net qty", "net weight", "net wt", "net quantity"]
-            ),
-            "COUNTRY_OF_ORIGIN": any(
-                kw in page_text
-                for kw in ["country of origin", "made in", "product of"]
-            ),
-            "MANUFACTURER": any(
-                kw in page_text
-                for kw in ["manufactured by", "mfd. by", "packed by", "marketed by"]
-            ),
-            "GENERIC_NAME": len(page_text) > 50,  # basic presence heuristic
-            "MFG_DATE": any(
-                kw in page_text
-                for kw in ["mfg", "manufactured", "date of manufacture"]
-            ),
-            "CUSTOMER_CARE": any(
-                kw in page_text
-                for kw in ["customer care", "consumer care", "helpline", "1800"]
-            ),
-        }
-
-        violations = [k for k, v in checks.items() if not v]
-        verdict = "PASS" if not violations else "FAIL"
+        db.add(listing_result)
 
         # Update batch job progress (atomic increment)
-        job = db.query(BatchJob).filter(BatchJob.batch_id == batch_id).first()
         if job:
             job.processed_urls = (job.processed_urls or 0) + 1
             if job.processed_urls >= job.total_urls:
                 job.status = "COMPLETED"
                 job.completed_at = datetime.utcnow()
-            db.commit()
+        db.commit()
 
         return {
             "url": listing_url,
             "index": index,
             "verdict": verdict,
-            "missing_fields": violations,
+            "missing_fields": missing_fields,
         }
 
     except Exception as e:

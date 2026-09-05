@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Eye, EyeSlash, CircleNotch, User, Lock, EnvelopeSimple, IdentificationBadge, Info } from '@phosphor-icons/react';
 import { useAuthStore } from '../store/authStore';
 import { useNavigate, Link } from 'react-router-dom';
+import { homeRouteForRole } from '../lib/roleRoutes';
 
 export const RegisterPage: React.FC = () => {
   const [username, setUsername] = useState('');
@@ -32,7 +33,8 @@ export const RegisterPage: React.FC = () => {
       
       // Auto-redirect after showing the role assignment message
       setTimeout(() => {
-        navigate('/dashboard', { replace: true });
+        const role = result.role || useAuthStore.getState().user?.role;
+        navigate(homeRouteForRole(role), { replace: true });
       }, 4000);
     } catch {
       // Error is already set in the store

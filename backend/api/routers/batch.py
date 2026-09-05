@@ -7,15 +7,22 @@ Each URL is scraped and checked for LMPC compliance keywords.
 """
 
 import uuid
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..schemas import BatchListingsRequest
 from ..auth import get_current_user, require_role, TokenData
 from ..database import get_db
-from ..models import BatchJob
+from ..models import BatchJob, BatchListingResult
 
 router = APIRouter(prefix="/batch", tags=["Batch Processing"])
+
+
+class SingleListingCheckRequest(BaseModel):
+    listing_url: str
+
 
 
 @router.post("/listings", summary="Bulk submit listing URLs for overnight audit")
@@ -45,20 +52,24 @@ async def batch_listings(
     db.add(new_job)
     db.commit()
 
-    # Enqueue all URLs as Celery tasks for parallel execution
+    # Enqueue all URLs as Celery tasks for parallel execution if Redis is available
     try:
-        from workers.tasks.scan_task import process_batch_listing
-        from celery import group
+        from workers.celery_app import is_redis_available
+        if is_redis_available():
+            from workers.tasks.scan_task import process_batch_listing
+            from celery import group
 
-        task_group = group(
-            process_batch_listing.s(batch_id, url, i)
-            for i, url in enumerate(request.listing_urls)
-        )
-        task_group.apply_async()
+            task_group = group(
+                process_batch_listing.s(batch_id, url, i)
+                for i, url in enumerate(request.listing_urls)
+            )
+            task_group.apply_async()
 
-        # Update status to PROCESSING once tasks are enqueued
-        new_job.status = "PROCESSING"
-        db.commit()
+            # Update status to PROCESSING once tasks are enqueued
+            new_job.status = "PROCESSING"
+            db.commit()
+        else:
+            print(f"[Batch] Redis broker not running. Job {batch_id} remains QUEUED.")
     except Exception as e:
         # If Celery/Redis is unavailable, leave as QUEUED and log error
         print(f"[Batch] Could not enqueue Celery tasks: {e}. Job {batch_id} remains QUEUED.")
@@ -123,3 +134,72 @@ async def list_batch_jobs(
         }
         for j in jobs
     ]
+
+
+@router.post("/listings/check", summary="Synchronous single-URL e-commerce compliance check")
+async def check_single_listing(
+    body: SingleListingCheckRequest,
+    current_user: TokenData = Depends(require_role("ECOM_LEAD")),
+    db: Session = Depends(get_db),
+):
+    """
+    Synchronous single-URL check without Celery/BatchJob.
+    Evaluates LMPC keyword declarations and writes BatchListingResult with batch_id=None.
+    """
+    from workers.tasks.scan_task import evaluate_listing_url
+
+    res = evaluate_listing_url(body.listing_url)
+    verdict = res["verdict"]
+    missing_fields = res["missing_fields"]
+
+    record = BatchListingResult(
+        id=str(uuid.uuid4()),
+        batch_id=None,
+        listing_url=body.listing_url,
+        index=None,
+        verdict=verdict,
+        missing_fields=missing_fields,
+        checked_by=current_user.user_id,
+        checked_at=datetime.utcnow(),
+    )
+    db.add(record)
+    db.commit()
+
+    return {
+        "id": record.id,
+        "listing_url": body.listing_url,
+        "verdict": verdict,
+        "missing_fields": missing_fields,
+        "checked_at": record.checked_at.isoformat() + "Z" if record.checked_at else None,
+    }
+
+
+@router.get("/listings/{batch_id}/results", summary="Get all results for a batch job")
+async def get_batch_results(
+    batch_id: str,
+    current_user: TokenData = Depends(require_role("QA_MANAGER")),
+    db: Session = Depends(get_db),
+):
+    """
+    Returns all BatchListingResult rows for that batch_id.
+    """
+    results = (
+        db.query(BatchListingResult)
+        .filter(BatchListingResult.batch_id == batch_id)
+        .order_by(BatchListingResult.index.asc().nullslast())
+        .all()
+    )
+    return [
+        {
+            "id": r.id,
+            "batch_id": r.batch_id,
+            "listing_url": r.listing_url,
+            "index": r.index,
+            "verdict": r.verdict,
+            "missing_fields": r.missing_fields or [],
+            "checked_by": r.checked_by,
+            "checked_at": r.checked_at.isoformat() + "Z" if r.checked_at else None,
+        }
+        for r in results
+    ]
+

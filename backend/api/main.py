@@ -158,6 +158,11 @@ def health_check():
     return {"status": "ok", "version": "1.0.0", "rules_version": "LMPC-2026-GSR128E"}
 
 
+@app.get("/v1/health", tags=["System"])
+def health_check_v1():
+    return health_check()
+
+
 @app.get("/", tags=["System"])
 def root():
     return {

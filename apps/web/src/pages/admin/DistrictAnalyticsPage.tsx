@@ -4,15 +4,12 @@ import { ChartLine, Users, Warning } from '@phosphor-icons/react';
 import { apiGet } from '../../lib/apiClient';
 import {
   ResponsiveContainer,
-  LineChart,
-  Line,
   BarChart,
   Bar,
   CartesianGrid,
   XAxis,
   YAxis,
   Tooltip,
-  Legend,
 } from 'recharts';
 
 interface AdminOverview {
@@ -71,7 +68,7 @@ export const DistrictAnalyticsPage: React.FC = () => {
                       borderRadius: 'var(--radius-md)',
                       color: 'var(--text-primary)',
                     }}
-                    formatter={(value: number) => [`${value}%`, 'Pass Rate']}
+                    formatter={(value: any) => [`${value}%`, 'Pass Rate']}
                   />
                   <Bar dataKey="rate" fill="#10b981" radius={[4, 4, 0, 0]} />
                 </BarChart>

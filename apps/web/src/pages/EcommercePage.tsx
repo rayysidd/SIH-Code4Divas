@@ -1,140 +1,90 @@
-import React, { useState, useCallback } from 'react';
-import { ArrowsLeftRight, UploadSimple, CircleNotch, CheckCircle, XCircle } from '@phosphor-icons/react';
+import React, { useState } from 'react';
+import { ArrowsLeftRight, CircleNotch, CheckCircle, XCircle } from '@phosphor-icons/react';
 import { useMutation } from '@tanstack/react-query';
-import { apiPost, } from '../lib/apiClient';
+import { apiPost } from '../lib/apiClient';
 
-interface CrossChannelField {
-  declaration: string;
-  physical_label: string | null;
-  ecom_listing: string | null;
-  match_status: string;
-}
-
-interface CrossChannelResponse {
-  scan_id: string;
+interface ListingCheckResponse {
+  id?: string;
+  verdict: 'PASS' | 'FAIL';
+  missing_fields: string[];
   listing_url: string;
-  overall_verdict: string;
-  rule_basis: string;
-  fields: CrossChannelField[];
+  checked_at?: string;
 }
+
+const MANDATORY_DECLARATIONS = [
+  { key: 'MRP', label: 'Maximum Retail Price (MRP)' },
+  { key: 'NET_QUANTITY', label: 'Net Quantity / Unit Sale Price' },
+  { key: 'COUNTRY_OF_ORIGIN', label: 'Country of Origin' },
+  { key: 'MANUFACTURER_PACKER', label: 'Manufacturer / Packer Details' },
+  { key: 'CONSUMER_CARE', label: 'Consumer Care / Contact Information' },
+];
 
 export const EcommercePage: React.FC = () => {
   const [url, setUrl] = useState('');
-  const [file, setFile] = useState<File | null>(null);
-  const [dragOver, setDragOver] = useState(false);
 
   const listingMutation = useMutation({
     mutationFn: (listingUrl: string) =>
-      apiPost<CrossChannelResponse>('/v1/check/listing', { listing_url: listingUrl }),
+      apiPost<ListingCheckResponse>('/v1/batch/listings/check', { listing_url: listingUrl }),
   });
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setDragOver(false);
-    const dropped = e.dataTransfer.files[0];
-    if (dropped && dropped.type.startsWith('image/')) {
-      setFile(dropped);
-    }
-  }, []);
-
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files?.[0]) {
-      setFile(e.target.files[0]);
-    }
-  };
-
-  const handleCheck = () => {
+  const handleCheck = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     if (url.trim()) {
       listingMutation.mutate(url.trim());
     }
   };
 
-  const statusIcon = (s: string) => {
-    if (s === 'MATCH') return <span style={{ color: 'var(--color-pass)', display: 'flex', alignItems: 'center', gap: 4 }}><CheckCircle size={16} weight="fill" /> MATCH</span>;
-    if (s === 'PARTIAL' || s === 'MISMATCH') return <span style={{ color: 'var(--color-warn)', display: 'flex', alignItems: 'center', gap: 4 }}><XCircle size={16} /> MISMATCH</span>;
-    return <span style={{ color: 'var(--color-fail)', display: 'flex', alignItems: 'center', gap: 4 }}><XCircle size={16} weight="fill" /> MISSING</span>;
-  };
+  const isPass = listingMutation.data?.verdict === 'PASS';
+  const missingFields = listingMutation.data?.missing_fields || [];
 
   return (
-    <>
-      <h2 style={{ marginBottom: 'var(--space-6)' }}>E-Commerce Compliance Checker</h2>
+    <div className="fade-in-up">
+      <h2 style={{ marginBottom: 'var(--space-2)' }}>E-Commerce Compliance Checker</h2>
+      <p style={{ color: 'var(--color-text-secondary)', marginBottom: 'var(--space-6)' }}>
+        Verify product listing URLs against LMPC Rule 6(10) mandatory e-commerce declarations.
+      </p>
 
-      {/* Step 1: Physical Label */}
+      {/* URL Input Form */}
       <div className="card" style={{ marginBottom: 'var(--space-6)' }}>
-        <h4 style={{ marginBottom: 'var(--space-4)' }}>Step 1: Physical Label</h4>
-        <div style={{ display: 'flex', gap: 'var(--space-6)', flexWrap: 'wrap' }}>
-          <div
-            className={`upload-zone ${dragOver ? 'drag-over' : ''}`}
-            style={{ flex: 1, minWidth: 200 }}
-            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={handleDrop}
-            onClick={() => document.getElementById('ecom-file-input')?.click()}
-          >
-            <input
-              id="ecom-file-input"
-              type="file"
-              accept="image/*"
-              onChange={handleFileSelect}
-              style={{ display: 'none' }}
-            />
-            {file ? (
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--space-2)' }}>
-                <CheckCircle size={32} weight="fill" color="var(--color-pass)" />
-                <p style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{file.name}</p>
-                <p style={{ fontSize: '0.75rem' }}>Click to change</p>
-              </div>
-            ) : (
-              <>
-                <div className="upload-zone-icon"><UploadSimple size={32} /></div>
-                <p>Drag & drop label image here, or click to upload</p>
-              </>
-            )}
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', color: 'var(--color-text-tertiary)', fontWeight: 600 }}>OR</div>
-          <div style={{
-            flex: 1, minWidth: 200, border: '1px solid var(--color-surface-4)', borderRadius: 'var(--radius-lg)',
-            padding: 'var(--space-6)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}>
-            <select style={{
-              padding: '8px 16px', borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--color-surface-4)', fontFamily: 'inherit',
-              fontSize: '0.875rem', background: 'var(--color-surface-0)', color: 'var(--color-text-primary)',
-            }}>
-              <option>Select from existing scans…</option>
-            </select>
-          </div>
-        </div>
-      </div>
-
-      {/* Step 2: E-Commerce URL */}
-      <div className="card" style={{ marginBottom: 'var(--space-6)' }}>
-        <h4 style={{ marginBottom: 'var(--space-4)' }}>Step 2: E-Commerce Listing URL</h4>
-        <div style={{ display: 'flex', gap: 'var(--space-3)' }}>
+        <h4 style={{ marginBottom: 'var(--space-4)' }}>Product Listing URL</h4>
+        <form onSubmit={handleCheck} style={{ display: 'flex', gap: 'var(--space-3)' }}>
           <input
             type="url"
-            placeholder="https://www.amazon.in/dp/B09XXXX…"
+            placeholder="https://www.amazon.in/dp/... or https://www.flipkart.com/..."
             value={url}
-            onChange={e => setUrl(e.target.value)}
+            onChange={(e) => setUrl(e.target.value)}
+            required
             style={{
-              flex: 1, padding: '10px 16px', borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--color-surface-4)', fontFamily: 'inherit',
-              fontSize: '0.875rem', outline: 'none', background: 'var(--color-surface-0)',
+              flex: 1,
+              padding: '10px 16px',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--color-surface-4)',
+              fontFamily: 'inherit',
+              fontSize: '0.875rem',
+              outline: 'none',
+              background: 'var(--color-surface-0)',
               color: 'var(--color-text-primary)',
             }}
           />
           <button
+            type="submit"
             className="btn btn-primary"
-            onClick={handleCheck}
             disabled={!url.trim() || listingMutation.isPending}
+            style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}
           >
             {listingMutation.isPending ? (
-              <><CircleNotch size={16} className="spin" /> Checking…</>
+              <>
+                <CircleNotch size={16} className="spin" />
+                <span>Checking…</span>
+              </>
             ) : (
-              <><ArrowsLeftRight size={16} /> Check</>
+              <>
+                <ArrowsLeftRight size={16} />
+                <span>Check Listing</span>
+              </>
             )}
           </button>
-        </div>
+        </form>
       </div>
 
       {/* Error State */}
@@ -143,52 +93,77 @@ export const EcommercePage: React.FC = () => {
           <div className="error-state-icon">⚠️</div>
           <h3>Check failed</h3>
           <p>{(listingMutation.error as Error)?.message || 'Could not verify listing'}</p>
-          <button className="btn btn-primary" onClick={handleCheck}>Retry</button>
+          <button className="btn btn-primary" onClick={() => handleCheck()}>Retry</button>
         </div>
       )}
 
-      {/* Result Table */}
+      {/* Result Card */}
       {listingMutation.isSuccess && listingMutation.data && (
         <div className="card fade-in-up">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
             <div>
-              <h4>Cross-Channel Reconciliation Report</h4>
-              <p style={{
-                fontSize: '0.75rem', fontWeight: 600, marginTop: 4,
-                color: listingMutation.data.overall_verdict === 'PASS' ? 'var(--color-pass)' : 'var(--color-fail)',
-              }}>
-                Overall: {listingMutation.data.overall_verdict}
-                {listingMutation.data.fields.filter(f => f.match_status !== 'MATCH').length > 0 &&
-                  ` — ${listingMutation.data.fields.filter(f => f.match_status !== 'MATCH').length} declarations need attention`}
-              </p>
-              <p className="mono" style={{ fontSize: '0.6875rem', color: 'var(--color-text-tertiary)', marginTop: 2 }}>
-                Rule basis: {listingMutation.data.rule_basis}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                <span
+                  style={{
+                    padding: '4px 12px',
+                    borderRadius: 'var(--radius-full, 9999px)',
+                    fontWeight: 700,
+                    fontSize: '0.8125rem',
+                    background: isPass ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                    color: isPass ? 'var(--color-pass)' : 'var(--color-fail)',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  {isPass ? <CheckCircle size={16} weight="fill" /> : <XCircle size={16} weight="fill" />}
+                  {isPass ? 'COMPLIANT' : 'NON-COMPLIANT'}
+                </span>
+                <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-text-primary)' }}>
+                  {isPass ? 'All declarations verified' : `${missingFields.length} Mandatory Declarations Missing`}
+                </span>
+              </div>
+              <p className="mono" style={{ fontSize: '0.75rem', color: 'var(--color-text-tertiary)', marginTop: 6 }}>
+                Rule basis: Rule 6(10), Legal Metrology (Packaged Commodities) Rules 2011
               </p>
             </div>
-            <button className="btn btn-secondary" style={{ fontSize: '0.75rem' }}>Export Report</button>
           </div>
+
           <table className="data-table data-table-responsive">
             <thead>
               <tr>
-                <th>Declaration</th>
-                <th>Physical Label</th>
-                <th>E-com Listing</th>
+                <th>Mandatory Declaration</th>
                 <th>Status</th>
+                <th>Requirement</th>
               </tr>
             </thead>
             <tbody>
-              {listingMutation.data.fields.map((f, i) => (
-                <tr key={i}>
-                  <td data-label="Declaration" style={{ fontWeight: 500 }}>{f.declaration}</td>
-                  <td data-label="Physical Label">{f.physical_label || '—'}</td>
-                  <td data-label="E-com Listing">{f.ecom_listing || '—'}</td>
-                  <td data-label="Status">{statusIcon(f.match_status)}</td>
-                </tr>
-              ))}
+              {MANDATORY_DECLARATIONS.map((decl) => {
+                const missing = missingFields.includes(decl.key);
+                return (
+                  <tr key={decl.key}>
+                    <td data-label="Declaration" style={{ fontWeight: 500 }}>{decl.label}</td>
+                    <td data-label="Status">
+                      {missing ? (
+                        <span style={{ color: 'var(--color-fail)', display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
+                          <XCircle size={16} weight="fill" /> Missing
+                        </span>
+                      ) : (
+                        <span style={{ color: 'var(--color-pass)', display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
+                          <CheckCircle size={16} weight="fill" /> Present
+                        </span>
+                      )}
+                    </td>
+                    <td data-label="Requirement" style={{ fontSize: '0.8125rem', color: 'var(--color-text-secondary)' }}>
+                      Mandatory on all e-commerce product display pages
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
       )}
-    </>
+    </div>
   );
 };

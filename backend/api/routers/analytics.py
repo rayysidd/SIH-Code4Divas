@@ -15,7 +15,7 @@ from sqlalchemy import func, case, cast, Date
 from ..schemas import AnalyticsOverview, TopViolatedRule
 from ..auth import get_current_user, require_role, TokenData
 from ..database import get_db
-from ..models import ScanSession, Violation
+from ..models import ScanSession, Violation, BatchListingResult
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
 
@@ -107,32 +107,90 @@ async def get_admin_overview(db: Session = Depends(get_db)):
     }
 
 
+@router.get("/ecom-overview", summary="E-commerce compliance overview for Ecom Lead")
+async def get_ecom_overview(
+    current_user: TokenData = Depends(require_role("ECOM_LEAD")),
+    db: Session = Depends(get_db),
+):
+    """
+    Aggregate from BatchListingResult (both standalone and batch-linked rows)
+    scoped to current_user.user_id: total listings checked, pass rate,
+    count of recent failures with their missing_fields.
+    """
+    user_results = db.query(BatchListingResult).filter(
+        BatchListingResult.checked_by == current_user.user_id
+    )
+    total_checked = user_results.count()
+    passed_count = user_results.filter(BatchListingResult.verdict == "PASS").count()
+    failed_count = user_results.filter(BatchListingResult.verdict == "FAIL").count()
+    pass_rate = round((passed_count / total_checked * 100), 1) if total_checked > 0 else 0.0
+
+    recent_failures = (
+        user_results.filter(BatchListingResult.verdict == "FAIL")
+        .order_by(BatchListingResult.checked_at.desc())
+        .limit(10)
+        .all()
+    )
+
+    return {
+        "total_checked": total_checked,
+        "total_listings_checked": total_checked,
+        "passed_count": passed_count,
+        "failed_count": failed_count,
+        "pass_rate": pass_rate,
+        "recent_failures": [
+            {
+                "id": r.id,
+                "listing_url": r.listing_url,
+                "verdict": r.verdict,
+                "missing_fields": r.missing_fields or [],
+                "checked_at": r.checked_at.isoformat() + "Z" if r.checked_at else None,
+            }
+            for r in recent_failures
+        ],
+    }
+
+
 @router.get("/overview", response_model=AnalyticsOverview, summary="Dashboard KPI overview")
 async def get_overview(
+    mine: bool = False,
     current_user: TokenData = Depends(require_role("INSPECTOR")),
     db: Session = Depends(get_db),
 ):
     """
     Return dashboard KPIs: total scans, pass rate, open violations, avg scan time.
-    Screen W-01 data source. All values from real DB aggregation.
+    Screen W-01 data source. Scoped to current user if INSPECTOR or mine=True.
     """
-    total = db.query(ScanSession).count()
-    passed = db.query(ScanSession).filter(ScanSession.overall_verdict == "PASS").count()
+    is_scoped = mine or (current_user.role == "INSPECTOR")
+
+    scan_query = db.query(ScanSession)
+    if is_scoped:
+        scan_query = scan_query.filter(ScanSession.user_id == current_user.user_id)
+
+    total = scan_query.count()
+    passed = scan_query.filter(ScanSession.overall_verdict == "PASS").count()
     pass_rate = round((passed / total * 100), 1) if total > 0 else 0.0
-    open_violations = (
-        db.query(Violation)
-        .filter(Violation.severity.in_(["CRITICAL", "HIGH"]))
-        .count()
-    )
+
+    vio_query = db.query(Violation).filter(Violation.severity.in_(["CRITICAL", "HIGH"]))
+    if is_scoped:
+        vio_query = vio_query.join(ScanSession, Violation.scan_id == ScanSession.scan_id).filter(
+            ScanSession.user_id == current_user.user_id
+        )
+    open_violations = vio_query.count()
 
     # Real avg scan time from ScanTask durations
     from ..models import ScanTask
-    completed_tasks = db.query(ScanTask).filter(ScanTask.status == "COMPLETED").all()
+    task_query = db.query(ScanTask).filter(ScanTask.status == "COMPLETED")
+    if is_scoped:
+        task_query = task_query.join(ScanSession, ScanTask.scan_id == ScanSession.scan_id).filter(
+            ScanSession.user_id == current_user.user_id
+        )
+    completed_tasks = task_query.all()
     if completed_tasks:
         durations = [
-            (t.completed_at - t.created_at).total_seconds()
+            (t.completed_at - t.started_at).total_seconds()
             for t in completed_tasks
-            if t.completed_at and t.created_at
+            if t.completed_at and t.started_at
         ]
         avg_time = round(sum(durations) / len(durations), 1) if durations else 0.0
     else:
@@ -148,19 +206,27 @@ async def get_overview(
 
 @router.get("/top-violations", response_model=List[TopViolatedRule], summary="Top violated rules")
 async def get_top_violations(
+    mine: bool = False,
     current_user: TokenData = Depends(require_role("INSPECTOR")),
     db: Session = Depends(get_db),
 ):
     """
     Return top 5 most violated rules. Screen W-01 bar chart data.
-    Real DB aggregation by rule_cited.
+    Scoped to current user if INSPECTOR or mine=True.
     """
-    rows = (
-        db.query(
-            Violation.rule_cited,
-            func.count(Violation.violation_id).label("cnt"),
+    is_scoped = mine or (current_user.role == "INSPECTOR")
+
+    q = db.query(
+        Violation.rule_cited,
+        func.count(Violation.violation_id).label("cnt"),
+    )
+    if is_scoped:
+        q = q.join(ScanSession, Violation.scan_id == ScanSession.scan_id).filter(
+            ScanSession.user_id == current_user.user_id
         )
-        .group_by(Violation.rule_cited)
+
+    rows = (
+        q.group_by(Violation.rule_cited)
         .order_by(func.count(Violation.violation_id).desc())
         .limit(5)
         .all()
@@ -182,25 +248,30 @@ async def get_top_violations(
 @router.get("/compliance-trend", summary="Compliance rate over time")
 async def get_compliance_trend(
     days: int = 30,
+    mine: bool = False,
     current_user: TokenData = Depends(require_role("INSPECTOR")),
     db: Session = Depends(get_db),
 ):
     """
     Return daily compliance rate for the last N days.
-    Screen W-07 line chart data. Real DB aggregation.
+    Screen W-07 line chart data. Scoped if INSPECTOR or mine=True.
     """
+    is_scoped = mine or (current_user.role == "INSPECTOR")
     cutoff = datetime.utcnow() - timedelta(days=days)
 
+    q = db.query(
+        cast(ScanSession.created_at, Date).label("day"),
+        func.count().label("total"),
+        func.sum(
+            case((ScanSession.overall_verdict == "PASS", 1), else_=0)
+        ).label("passed"),
+    ).filter(ScanSession.created_at >= cutoff)
+
+    if is_scoped:
+        q = q.filter(ScanSession.user_id == current_user.user_id)
+
     rows = (
-        db.query(
-            cast(ScanSession.created_at, Date).label("day"),
-            func.count().label("total"),
-            func.sum(
-                case((ScanSession.overall_verdict == "PASS", 1), else_=0)
-            ).label("passed"),
-        )
-        .filter(ScanSession.created_at >= cutoff)
-        .group_by(cast(ScanSession.created_at, Date))
+        q.group_by(cast(ScanSession.created_at, Date))
         .order_by(cast(ScanSession.created_at, Date))
         .all()
     )

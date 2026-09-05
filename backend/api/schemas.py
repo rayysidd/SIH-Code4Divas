@@ -103,6 +103,14 @@ class ViolationCountSummary(BaseModel):
     inconclusive: int = 0
 
 
+class CheckItemResponse(BaseModel):
+    check_id: str
+    rule_cited: str
+    result: str  # PASS or FAIL
+    confidence: float
+    description: Optional[str] = None
+
+
 class ScanResponse(BaseModel):
     scan_id: str
     status: str = "COMPLETED"
@@ -110,6 +118,9 @@ class ScanResponse(BaseModel):
     overall_confidence: float
     violation_count: ViolationCountSummary
     violations: List[ViolationResponse] = []
+    total_checks_run: Optional[int] = 0
+    checks_passed: Optional[int] = 0
+    checks: List[CheckItemResponse] = []
     pdf_report_url: Optional[str] = None
     annotated_image_url: Optional[str] = None
     ocr_preview: Optional[str] = None

@@ -21,6 +21,14 @@ interface ViolationDetail {
   remediation?: string;
 }
 
+interface CheckItem {
+  check_id: string;
+  rule_cited: string;
+  result: 'PASS' | 'FAIL';
+  confidence: number;
+  description?: string | null;
+}
+
 interface ScanReport {
   scan_id: string;
   status: string;
@@ -28,6 +36,9 @@ interface ScanReport {
   overall_confidence: number;
   violation_count: { critical: number; high: number; medium: number; inconclusive: number };
   violations: ViolationDetail[];
+  total_checks_run?: number;
+  checks_passed?: number;
+  checks?: CheckItem[];
   generated_at?: string;
   rule_version?: string;
   pdp_area_cm2?: number | null;
@@ -56,16 +67,19 @@ export const ScanDetailPage: React.FC = () => {
   const vc = report ? verdictConfig[report.overall_verdict] || verdictConfig.INCONCLUSIVE : null;
 
   const violations = report?.violations ?? [];
+  const checksList = report?.checks ?? [];
+  const totalChecks = report?.total_checks_run ?? (checksList.length || violations.length);
+  const passedChecks = report?.checks_passed ?? checksList.filter(c => c.result === 'PASS').length;
+  const scorePercent = totalChecks > 0 ? Math.round((passedChecks / totalChecks) * 100) : (report?.overall_verdict === 'PASS' ? 100 : 0);
+
   const filteredViolations = violations.filter(v => {
     if (filterVerdict === 'ALL') return true;
     if (filterVerdict === 'FAIL') return v.severity === 'CRITICAL' || v.severity === 'HIGH';
     if (filterVerdict === 'WARN') return v.severity === 'MEDIUM';
-    return true;
+    return false;
   });
 
-  const totalChecks = violations.length || 28;
-  const passedChecks = totalChecks - (report?.violation_count?.critical ?? 0) - (report?.violation_count?.high ?? 0) - (report?.violation_count?.medium ?? 0);
-  const scorePercent = Math.round((passedChecks / totalChecks) * 100);
+  const passedItems = checksList.filter(c => c.result === 'PASS');
 
   const handleDownloadPdf = () => {
     window.open(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'}/v1/report/${scanId}/pdf`, '_blank');
@@ -160,9 +174,9 @@ export const ScanDetailPage: React.FC = () => {
           <div className="card" style={{ marginBottom: 'var(--space-4)', padding: 'var(--space-3)' }}>
             <div className="filter-chips">
               {[
-                { key: 'ALL', label: `All (${violations.length})` },
-                { key: 'FAIL', label: `FAIL (${(report.violation_count.critical || 0) + (report.violation_count.high || 0)})` },
-                { key: 'WARN', label: `WARN (${report.violation_count.medium || 0})` },
+                { key: 'ALL', label: `All (${totalChecks})` },
+                { key: 'FAIL', label: `FAIL (${violations.length})` },
+                { key: 'PASS', label: `PASS (${passedChecks})` },
               ].map(f => (
                 <button key={f.key} className={`filter-chip ${filterVerdict === f.key ? 'active' : ''}`} onClick={() => setFilterVerdict(f.key)}>
                   {f.label}
@@ -171,8 +185,37 @@ export const ScanDetailPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Violation Details */}
-          {filteredViolations.length > 0 ? (
+          {/* Checks and Violations Details */}
+          {filterVerdict === 'PASS' ? (
+            passedItems.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+                {passedItems.map((p) => (
+                  <div key={p.check_id} className="card fade-in-up" style={{ padding: 'var(--space-4)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 'var(--space-2)' }}>
+                      <div>
+                        <span className="badge badge-pass" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          <CheckCircle size={14} weight="fill" /> PASS
+                        </span>
+                        <span className="mono" style={{ marginLeft: 'var(--space-2)', fontWeight: 600 }}>{p.rule_cited}</span>
+                      </div>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--color-text-tertiary)' }}>
+                        Confidence: {(p.confidence > 1 ? p.confidence : p.confidence * 100).toFixed(0)}%
+                      </span>
+                    </div>
+                    <p style={{ fontWeight: 500 }}>{p.description || 'Verified compliant with rule requirement'}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="card">
+                <div className="empty-state">
+                  <Question size={48} color="var(--color-text-tertiary)" />
+                  <h3>No passed checks recorded</h3>
+                  <p>No successful check items were returned for this scan</p>
+                </div>
+              </div>
+            )
+          ) : filteredViolations.length > 0 ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
               {filteredViolations.map((v) => (
                 <div key={v.violation_id} className="card fade-in-up" style={{ padding: 'var(--space-4)' }}>
@@ -210,8 +253,8 @@ export const ScanDetailPage: React.FC = () => {
             <div className="card">
               <div className="empty-state">
                 <CheckCircle size={48} color="var(--color-pass)" />
-                <h3>All checks passed</h3>
-                <p>No violations found for this filter</p>
+                <h3>No violations found</h3>
+                <p>All evaluated checks passed for this filter</p>
               </div>
             </div>
           )}
