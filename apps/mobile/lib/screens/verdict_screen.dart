@@ -24,10 +24,7 @@ class _VerdictScreenState extends ConsumerState<VerdictScreen> {
 
   Future<void> _exportPdf(String scanId) async {
     try {
-      final bytes = await ApiService.getScanReport(scanId);
-      final dir = await getTemporaryDirectory();
-      final file = File('${dir.path}/report_$scanId.pdf');
-      await file.writeAsBytes(bytes);
+      final file = await ApiService.downloadPdfReport(scanId);
 
       await Share.shareXFiles([XFile(file.path)], text: 'LabelLens Scan Report');
     } catch (e) {

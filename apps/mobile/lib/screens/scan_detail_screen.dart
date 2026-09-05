@@ -21,7 +21,7 @@ class _ScanDetailScreenState extends State<ScanDetailScreen> {
   @override
   void initState() {
     super.initState();
-    _scanFuture = ApiService.getScanResult(widget.scanId);
+    _scanFuture = ApiService.getLabelScanResult(widget.scanId);
   }
 
   Future<void> _downloadPdf() async {
@@ -76,6 +76,9 @@ class _ScanDetailScreenState extends State<ScanDetailScreen> {
 
           final data = snapshot.data!;
           final overallVerdict = data['overall_verdict'];
+          
+          final double? pdpArea = (data['pdp_area_cm2'] as num?)?.toDouble();
+          final String? pdpMethod = data['pdp_area_method'] as String?;
           
           if (overallVerdict == 'NOT_A_LABEL') {
             final ocrPreview = data['ocr_preview']?.toString();
@@ -206,6 +209,12 @@ class _ScanDetailScreenState extends State<ScanDetailScreen> {
                                         _buildSeverityCount('${vc['medium']}', 'MEDIUM', LabelLensColors.brandSecondary),
                                       ],
                                     ),
+                                    if (pdpArea != null) ...[
+                                      const SizedBox(height: 24),
+                                      Container(height: 1, width: double.infinity, color: LabelLensColors.surface3.withOpacity(0.5)),
+                                      const SizedBox(height: 16),
+                                      _buildPdpAreaRow(pdpArea, pdpMethod),
+                                    ],
                                   ],
                                 ),
                               ),
@@ -337,6 +346,83 @@ class _ScanDetailScreenState extends State<ScanDetailScreen> {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildPdpAreaRow(double area, String? method) {
+    final isCalibrated = method == 'barcode_calibrated';
+    final isHeuristic = method == 'heuristic_fallback';
+
+    final Color dotColor = isCalibrated
+        ? const Color(0xFF22C55E)   // green
+        : isHeuristic
+            ? const Color(0xFFF59E0B) // amber
+            : const Color(0xFF9CA3AF); // grey
+
+    final String areaText = isHeuristic
+        ? '~${area.toStringAsFixed(1)} cm²'
+        : '${area.toStringAsFixed(1)} cm²';
+
+    final String methodText = isCalibrated
+        ? 'Barcode calibrated'
+        : isHeuristic
+            ? 'Estimated — no barcode found'
+            : 'Unknown method';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Text(
+              'PDP Area',
+              style: TextStyle(
+                fontSize: 13,
+                color: Color(0xFF6B7280),
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                color: dotColor,
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              areaText,
+              style: const TextStyle(
+                fontSize: 13,
+                color: Color(0xFF111827),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(width: 4),
+            Text(
+              '· $methodText',
+              style: const TextStyle(
+                fontSize: 12,
+                color: Color(0xFF9CA3AF),
+              ),
+            ),
+          ],
+        ),
+        if (isHeuristic) ...[
+          const SizedBox(height: 4),
+          const Text(
+            'Font-size verdicts are approximate. '
+            'Physical verification recommended before issuing notice.',
+            style: TextStyle(
+              fontSize: 11,
+              color: Color(0xFFF59E0B),
+              fontStyle: FontStyle.italic,
+            ),
+          ),
+        ],
+      ],
     );
   }
 }

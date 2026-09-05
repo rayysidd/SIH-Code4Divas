@@ -4,9 +4,55 @@ import 'package:go_router/go_router.dart';
 import 'package:design_system/tokens/colors.dart';
 import 'package:design_system/tokens/spacing.dart';
 import 'package:design_system/components/verdict_badge.dart';
+import '../services/api_service.dart';
 
-class ScanHistoryScreen extends StatelessWidget {
+class ScanHistoryScreen extends StatefulWidget {
   const ScanHistoryScreen({super.key});
+
+  @override
+  State<ScanHistoryScreen> createState() => _ScanHistoryScreenState();
+}
+
+class _ScanHistoryScreenState extends State<ScanHistoryScreen> {
+  bool _isLoading = true;
+  String? _error;
+  List<dynamic> _scans = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchScans();
+  }
+
+  Future<void> _fetchScans() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+    try {
+      final data = await ApiService.getScans();
+      setState(() {
+        _scans = data;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+        _isLoading = false;
+      });
+    }
+  }
+
+  VerdictType _parseVerdict(String v) {
+    switch(v.toUpperCase()) {
+      case 'PASS': return VerdictType.pass;
+      case 'FAIL': return VerdictType.fail;
+      case 'NEEDS_VERIFICATION':
+      case 'INCONCLUSIVE':
+        return VerdictType.warn;
+      default: return VerdictType.pass;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -55,47 +101,61 @@ class ScanHistoryScreen extends StatelessWidget {
                 ),
                 
                 Expanded(
-                  child: ListView(
-                    padding: const EdgeInsets.symmetric(horizontal: LabelLensSpacing.s4, vertical: 8),
-                    children: [
-                      const Text('Today, 26 Aug 2026', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: LabelLensColors.textTertiary, letterSpacing: 1.2)),
-                      const SizedBox(height: LabelLensSpacing.s2),
-                      
-                      _ScanHistoryCard(name: 'Sunflower Oil', verdict: VerdictType.fail, time: '14:32', location: 'Sadar Bazaar', checks: '18/28'),
-                      _ScanHistoryCard(name: 'Wheat Biscuits', verdict: VerdictType.pass, time: '14:45', location: 'Sadar Bazaar', checks: '28/28'),
-                      
-                      const SizedBox(height: LabelLensSpacing.s4),
-                      const Text('Yesterday, 25 Aug 2026', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: LabelLensColors.textTertiary, letterSpacing: 1.2)),
-                      const SizedBox(height: LabelLensSpacing.s2),
-                      
-                      _ScanHistoryCard(name: 'Soap Bar', verdict: VerdictType.warn, time: '11:20', location: 'Lajpat Nagar', checks: '26/28'),
-                      
-                      const SizedBox(height: LabelLensSpacing.s6),
-                      
-                      // Pending sync
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(LabelLensSpacing.s4),
-                        decoration: BoxDecoration(
-                          color: LabelLensColors.statusWarnBg.withOpacity(0.8),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: LabelLensColors.statusWarnBorder),
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.sync, color: LabelLensColors.statusWarn),
-                            const SizedBox(width: 12),
-                            const Expanded(child: Text('Pending Sync: 3 scans', style: TextStyle(fontWeight: FontWeight.w700, color: LabelLensColors.textPrimary))),
-                            TextButton(
-                              onPressed: () {}, 
-                              child: const Text('Sync Now', style: TextStyle(color: LabelLensColors.statusWarn, fontWeight: FontWeight.bold)),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 80),
-                    ],
-                  ),
+                  child: _isLoading
+                      ? const Center(child: CircularProgressIndicator())
+                      : _error != null
+                          ? Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Icon(Icons.error_outline, size: 48, color: LabelLensColors.statusFail),
+                                  const SizedBox(height: 12),
+                                  Text(_error!, style: const TextStyle(color: LabelLensColors.statusFail)),
+                                  const SizedBox(height: 12),
+                                  ElevatedButton(
+                                    onPressed: _fetchScans,
+                                    child: const Text('Retry'),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : _scans.isEmpty
+                              ? Center(
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: const [
+                                      Icon(Icons.inbox_outlined, size: 48, color: LabelLensColors.textTertiary),
+                                      SizedBox(height: 12),
+                                      Text('No scans yet', style: TextStyle(color: LabelLensColors.textTertiary, fontSize: 16, fontWeight: FontWeight.w600)),
+                                      SizedBox(height: 4),
+                                      Text('Your completed label audits will appear here.', style: TextStyle(color: LabelLensColors.textTertiary, fontSize: 13)),
+                                    ],
+                                  ),
+                                )
+                              : RefreshIndicator(
+                                  onRefresh: _fetchScans,
+                                  child: ListView.builder(
+                                    padding: const EdgeInsets.symmetric(horizontal: LabelLensSpacing.s4, vertical: 8),
+                                    itemCount: _scans.length,
+                                    itemBuilder: (context, index) {
+                                      final s = _scans[index];
+                                      final scanId = s['scan_id']?.toString() ?? 'Unknown';
+                                      final verdictStr = s['overall_verdict']?.toString() ?? 'PROCESSING';
+                                      final confidence = (s['overall_confidence'] as num?)?.toDouble() ?? 0.0;
+                                      final createdAt = s['created_at']?.toString() ?? '';
+                                      final ruleVersion = s['rule_version']?.toString() ?? '2024.01';
+
+                                      return _ScanHistoryCard(
+                                        name: scanId.length > 8 ? '${scanId.substring(0, 8)}...' : scanId,
+                                        verdict: _parseVerdict(verdictStr),
+                                        time: createdAt.isNotEmpty ? DateTime.tryParse(createdAt)?.toLocal().toString().split('.')[0] ?? '—' : '—',
+                                        location: 'Confidence: ${(confidence * 100).toStringAsFixed(0)}%',
+                                        checks: 'Rules v$ruleVersion',
+                                        scanId: scanId,
+                                      );
+                                    },
+                                  ),
+                                ),
                 ),
               ],
             ),
@@ -138,7 +198,8 @@ class _ScanHistoryCard extends StatelessWidget {
   final String time;
   final String location;
   final String checks;
-  const _ScanHistoryCard({required this.name, required this.verdict, required this.time, required this.location, required this.checks});
+  final String scanId;
+  const _ScanHistoryCard({required this.name, required this.verdict, required this.time, required this.location, required this.checks, required this.scanId});
 
   @override
   Widget build(BuildContext context) {
@@ -154,7 +215,7 @@ class _ScanHistoryCard extends StatelessWidget {
         color: Colors.transparent,
         child: InkWell(
           borderRadius: BorderRadius.circular(16),
-          onTap: () => context.push('/scan/1'),
+          onTap: () => context.push('/scan/$scanId'),
           child: Padding(
             padding: const EdgeInsets.all(16.0),
             child: Row(
@@ -174,7 +235,7 @@ class _ScanHistoryCard extends StatelessWidget {
                     children: [
                       Row(
                         children: [
-                          Expanded(child: Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16))),
+                          Expanded(child: Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, fontFamily: 'monospace'))),
                           VerdictBadge(verdict: verdict, size: BadgeSize.sm),
                         ],
                       ),
@@ -185,13 +246,13 @@ class _ScanHistoryCard extends StatelessWidget {
                           const SizedBox(width: 4),
                           Text(time, style: const TextStyle(fontSize: 12, color: LabelLensColors.textSecondary, fontWeight: FontWeight.w600)),
                           const SizedBox(width: 12),
-                          const Icon(Icons.location_on, size: 14, color: LabelLensColors.textTertiary),
+                          const Icon(Icons.info_outline, size: 14, color: LabelLensColors.textTertiary),
                           const SizedBox(width: 4),
                           Text(location, style: const TextStyle(fontSize: 12, color: LabelLensColors.textSecondary, fontWeight: FontWeight.w600)),
                         ],
                       ),
                       const SizedBox(height: 6),
-                      Text('$checks ✓ checks passed', style: const TextStyle(fontSize: 12, color: LabelLensColors.textTertiary)),
+                      Text(checks, style: const TextStyle(fontSize: 12, color: LabelLensColors.textTertiary)),
                     ],
                   ),
                 ),

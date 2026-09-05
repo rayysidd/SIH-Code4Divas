@@ -6,6 +6,7 @@ Implements: POST /check/label, GET /check/label/status/{scan_id},
 
 import uuid
 import os
+import re
 import tempfile
 from typing import List, Optional
 from datetime import datetime
@@ -61,12 +62,12 @@ def _run_pipeline(scan_id: str, temp_img_path: str, rule_version: str, user_id: 
             except Exception as e:
                 with open('latest_upload_error.txt', 'w') as f:
                     f.write(f"Copy error: {e}")
-        
-        from ml.pipeline import process_label_image
+
+        from ml.pipeline import process_label_image, generate_annotated_image
         from ml.rules_engine import evaluate_compliance
 
         pipeline_result = process_label_image(temp_img_path)
-        
+
         with open('latest_upload_debug.txt', 'w', encoding='utf-8') as f:
             f.write(str(pipeline_result.get("ocr_preview")))
             f.write("\n\nDeclarations:\n")
@@ -101,7 +102,6 @@ def _run_pipeline(scan_id: str, temp_img_path: str, rule_version: str, user_id: 
         declarations = pipeline_result.get("declarations", {})
 
         # Detect import status from country-of-origin declaration itself.
-        # If a country other than India is found in the COO field, flag as imported.
         coo_decl = declarations.get("COUNTRY_OF_ORIGIN", {})
         detected_country = (coo_decl.get("value") or "").strip().lower()
         is_imported = bool(detected_country) and detected_country not in (
@@ -109,18 +109,37 @@ def _run_pipeline(scan_id: str, temp_img_path: str, rule_version: str, user_id: 
             "bharat",
         )
 
-        # PDP area: until real package-shape/dimension detection exists,
-        # use a documented placeholder — but LOG that this is an approximation
-        # so nobody mistakes it for a real measurement.
-        pdp_area = 150.0  # TODO: replace with real PDP measurement (Module D4)
+        # PDP area from pipeline (real estimation via barcode or heuristic)
+        pdp_area = pipeline_result.get("pdp_area_cm2", 150.0)
+        pdp_area_method = pipeline_result.get("pdp_area_method", "default_fallback")
+        image_height = pipeline_result.get("image_height")
+
         print(
-            f"[WARNING] Using placeholder PDP area ({pdp_area} cm²) — "
-            f"real dimension detection not yet implemented. Font-size "
-            f"verdicts based on this area are approximate."
+            f"[PDP Area] {pdp_area} cm² (method: {pdp_area_method})"
         )
 
+        # Detect product category heuristically from declarations
+        product_category = _detect_product_category(declarations)
+
         compliance_result = evaluate_compliance(
-            declarations, pdp_area_cm2=pdp_area, is_imported=is_imported
+            declarations,
+            pdp_area_cm2=pdp_area,
+            is_imported=is_imported,
+            product_category=product_category,
+            image_height=image_height,
+            image_path=temp_img_path,
+        )
+
+        # Generate annotated image with bounding boxes
+        annotated_dir = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "static", "annotated"
+        )
+        os.makedirs(annotated_dir, exist_ok=True)
+        annotated_path = os.path.join(annotated_dir, f"{scan_id}.jpg")
+        generate_annotated_image(
+            temp_img_path, declarations,
+            compliance_result["violations"], annotated_path
         )
 
         violations = []
@@ -140,7 +159,7 @@ def _run_pipeline(scan_id: str, temp_img_path: str, rule_version: str, user_id: 
 
             confidence = 0.90
             for decl_key, decl_data in declarations.items():
-                if decl_data.get("present") and decl_data.get("font_measurement"):
+                if isinstance(decl_data, dict) and decl_data.get("present") and decl_data.get("font_measurement"):
                     if "MRP" in v["description"] and decl_key == "MRP":
                         confidence = decl_data["font_measurement"].get(
                             "confidence", 0.90
@@ -158,12 +177,14 @@ def _run_pipeline(scan_id: str, temp_img_path: str, rule_version: str, user_id: 
             db_violation = Violation(
                 violation_id=str(uuid.uuid4()),
                 scan_id=scan_id,
-                violation_code="VIO-GEN-001",
-                check_id="C01",
+                violation_code=v.get("violation_id", "VIO-GEN-001"),
+                check_id=v.get("violation_id", "C01"),
                 rule_cited=v.get("rule_citation", v.get("rule", "Rule")),
                 severity=severity_enum.value,
                 description=v["description"],
                 confidence=confidence,
+                measured_value=v.get("measured_value"),
+                required_value=v.get("required_format"),
             )
             db.add(db_violation)
 
@@ -194,6 +215,7 @@ def _run_pipeline(scan_id: str, temp_img_path: str, rule_version: str, user_id: 
         db_session.overall_verdict = verdict.value
         db_session.overall_confidence = overall_confidence
         db_session.annotated_image_url = f"/static/annotated/{scan_id}.jpg"
+        db_session.pdp_area_cm2 = pdp_area
         db_task.status = "COMPLETED"
         db_task.completed_at = datetime.utcnow()
 
@@ -210,6 +232,8 @@ def _run_pipeline(scan_id: str, temp_img_path: str, rule_version: str, user_id: 
             violation_count=violation_count,
             violations=violations,
             annotated_image_url=f"/static/annotated/{scan_id}.jpg",
+            pdp_area_cm2=pdp_area,
+            pdp_area_method=pdp_area_method,
         )
 
         _scan_store[scan_id] = {
@@ -236,6 +260,48 @@ def _run_pipeline(scan_id: str, temp_img_path: str, rule_version: str, user_id: 
                 os.remove(temp_img_path)
             except Exception:
                 pass
+
+
+def _detect_product_category(declarations: dict) -> str:
+    """
+    Heuristic product category detection from label declarations.
+    Returns one of: FOOD_GENERAL, EDIBLE_OIL, COSMETICS, ELECTRONICS, GENERAL.
+    """
+    # Check generic name and combined text for category hints
+    texts_to_check = []
+    for key in ["GENERIC_NAME", "MANUFACTURER_NAME"]:
+        decl = declarations.get(key, {})
+        if isinstance(decl, dict) and decl.get("raw_text"):
+            texts_to_check.append(decl["raw_text"].lower())
+
+    combined = " ".join(texts_to_check)
+
+    oil_keywords = ["edible", "sunflower", "mustard", "groundnut", "coconut oil",
+                     "soybean oil", "palm oil", "refined oil", "cooking oil"]
+    if any(kw in combined for kw in oil_keywords):
+        return "EDIBLE_OIL"
+
+    cosmetics_keywords = ["shampoo", "soap", "cream", "lotion", "face wash",
+                          "deodorant", "perfume", "moisturizer", "sunscreen"]
+    if any(kw in combined for kw in cosmetics_keywords):
+        return "COSMETICS"
+
+    food_keywords = ["biscuit", "snack", "chips", "noodle", "rice", "flour",
+                     "sugar", "salt", "spice", "masala", "tea", "coffee",
+                     "chocolate", "candy", "milk", "juice", "water",
+                     "bread", "cereal", "dal", "atta", "ghee"]
+    if any(kw in combined for kw in food_keywords):
+        return "FOOD_GENERAL"
+
+    # Check for FSSAI mentions (strong food indicator)
+    all_raw = " ".join(
+        d.get("raw_text", "") for d in declarations.values()
+        if isinstance(d, dict) and d.get("raw_text")
+    ).lower()
+    if "fssai" in all_raw:
+        return "FOOD_GENERAL"
+
+    return "GENERAL"
 
 
 @router.post(
@@ -273,7 +339,7 @@ async def check_label(
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tf:
             img = Image.open(images[0].file)
-            
+
             # Handle images with alpha channel (e.g. PNGs) by putting them on a white background
             if img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info):
                 alpha = img.convert('RGBA').split()[-1]
@@ -282,15 +348,21 @@ async def check_label(
                 img = bg
             else:
                 img = img.convert('RGB')
-                
+
             # Resize image to max 3200x3200 to balance OCR speed and preserving fine text on back-of-pack labels
             img.thumbnail((3200, 3200), Image.Resampling.LANCZOS)
             img.save(tf.name, format="JPEG", quality=95)
             temp_img_path = tf.name
 
-    background_tasks.add_task(
-        _run_pipeline, scan_id, temp_img_path, rule_version, current_user.user_id
-    )
+    # Try to use Celery for async processing; fall back to BackgroundTasks
+    try:
+        from workers.tasks.scan_task import run_scan_pipeline
+        run_scan_pipeline.delay(scan_id, temp_img_path, rule_version, current_user.user_id)
+    except Exception:
+        # Celery/Redis not available — fall back to FastAPI BackgroundTasks
+        background_tasks.add_task(
+            _run_pipeline, scan_id, temp_img_path, rule_version, current_user.user_id
+        )
 
     return ScanAsyncResponse(
         scan_id=scan_id,
@@ -366,6 +438,79 @@ async def check_label_result(
     raise HTTPException(status_code=404, detail="Scan result not found in cache")
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# Scan History & Violations Listing (real DB queries)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@router.get(
+    "/scans",
+    summary="List all scans for the current user",
+)
+async def list_scans(
+    current_user: TokenData = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Return all scans for the authenticated user, ordered newest first.
+    """
+    rows = (
+        db.query(ScanSession)
+        .filter(ScanSession.user_id == current_user.user_id)
+        .order_by(ScanSession.created_at.desc())
+        .all()
+    )
+    return [
+        {
+            "scan_id": s.scan_id,
+            "overall_verdict": s.overall_verdict or "PROCESSING",
+            "overall_confidence": s.overall_confidence or 0.0,
+            "created_at": s.created_at.isoformat() + "Z" if s.created_at else None,
+            "rule_version": s.rule_version,
+        }
+        for s in rows
+    ]
+
+
+@router.get(
+    "/violations",
+    summary="List all violations for the current user's scans",
+)
+async def list_violations(
+    current_user: TokenData = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Return all violations across the user's scans, newest first.
+    """
+    rows = (
+        db.query(Violation)
+        .join(ScanSession, Violation.scan_id == ScanSession.scan_id)
+        .filter(ScanSession.user_id == current_user.user_id)
+        .order_by(Violation.created_at.desc() if hasattr(Violation, 'created_at') else Violation.violation_id.desc())
+        .all()
+    )
+    return [
+        {
+            "violation_id": v.violation_id,
+            "scan_id": v.scan_id,
+            "violation_code": v.violation_code,
+            "rule_cited": v.rule_cited,
+            "severity": v.severity,
+            "description": v.description,
+            "confidence": v.confidence,
+            "measured_value": v.measured_value,
+            "required_value": v.required_value,
+        }
+        for v in rows
+    ]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# E-Commerce Listing Checker (FIX 13 — real scraper)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
 @router.post(
     "/listing", response_model=CrossChannelResponse, summary="Check e-commerce listing"
 )
@@ -374,38 +519,94 @@ async def check_listing(
     current_user: TokenData = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """
+    Scrapes a real e-commerce listing URL and checks for LMPC-required
+    declarations (MRP, Net Qty, Country of Origin, Manufacturer, etc.).
+    """
+    import httpx
+    from bs4 import BeautifulSoup
+
     scan_id = str(uuid.uuid4())
-    fields = [
-        CrossChannelField(
-            declaration="MRP",
-            physical_label="₹89.00 (incl. taxes)",
-            ecom_listing="₹89.00",
-            match_status="MATCH",
+
+    try:
+        headers = {"User-Agent": "Mozilla/5.0 (compatible; LabelLens/1.0)"}
+        resp = httpx.get(
+            request.listing_url, headers=headers, timeout=15, follow_redirects=True
+        )
+        soup = BeautifulSoup(resp.text, "html.parser")
+        page_text = soup.get_text(separator=" ", strip=True)
+        page_lower = page_text.lower()
+    except Exception as e:
+        raise HTTPException(
+            status_code=422, detail=f"Could not fetch listing: {e}"
+        )
+
+    def find_field(patterns: list) -> tuple:
+        for pat in patterns:
+            if pat in page_lower:
+                idx = page_lower.index(pat)
+                snippet = page_text[max(0, idx - 10) : idx + 60].strip()
+                return True, snippet
+        return False, None
+
+    fields = []
+    checks = [
+        (
+            "MRP",
+            ["mrp", "maximum retail price"],
+            "MRP ₹XX (incl. of all taxes)",
         ),
-        CrossChannelField(
-            declaration="Net Quantity",
-            physical_label="500ml",
-            ecom_listing="500ml",
-            match_status="MATCH",
+        (
+            "Net Quantity",
+            ["net qty", "net weight", "net wt", "net quantity", "net content"],
+            "Net Qty: X g",
         ),
-        CrossChannelField(
-            declaration="Country of Origin",
-            physical_label="India",
-            ecom_listing=None,
-            match_status="LISTING_ONLY",
+        (
+            "Country of Origin",
+            ["country of origin", "made in", "product of"],
+            "Country of Origin: India",
         ),
-        CrossChannelField(
-            declaration="Customer Care",
-            physical_label="1800-123-4567",
-            ecom_listing=None,
-            match_status="LISTING_ONLY",
+        (
+            "Manufacturer",
+            ["manufactured by", "mfd. by", "packed by", "marketed by", "brand owner"],
+            "Manufactured by: XYZ Ltd",
+        ),
+        (
+            "Manufacturing Date",
+            ["mfg", "manufactured", "date of manufacture"],
+            "Mfg: MM/YYYY",
+        ),
+        (
+            "Customer Care",
+            ["customer care", "consumer care", "helpline", "1800"],
+            "1800-XXX-XXXX",
+        ),
+        (
+            "Generic Name",
+            ["net qty", "ingredients", "description"],
+            "Product description present",
         ),
     ]
+
+    verdict = VerdictEnum.PASS
+    for declaration, patterns, required in checks:
+        found, snippet = find_field(patterns)
+        status = "MATCH" if found else "MISSING"
+        if not found:
+            verdict = VerdictEnum.FAIL
+        fields.append(
+            CrossChannelField(
+                declaration=declaration,
+                physical_label=None,
+                ecom_listing=snippet,
+                match_status=status,
+            )
+        )
 
     return CrossChannelResponse(
         scan_id=scan_id,
         listing_url=request.listing_url,
-        overall_verdict=VerdictEnum.FAIL,
+        overall_verdict=verdict,
         fields=fields,
     )
 

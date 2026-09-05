@@ -8,11 +8,17 @@ import 'package:path_provider/path_provider.dart';
 
 /// API Service for connecting to the backend.
 class ApiService {
-  // Using your computer's local IP since you're testing on a physical device
-  static const String baseUrl = String.fromEnvironment(
-    'API_BASE_URL',
-    defaultValue: 'http://192.168.1.7:8000/v1',
-  );
+  // Note: If you are testing on a physical device, you must use your computer's local IP (e.g. 192.168.X.X)
+  static String get baseUrl {
+    const envUrl = String.fromEnvironment('API_BASE_URL');
+    if (envUrl.isNotEmpty) return envUrl;
+    try {
+      if (Platform.isAndroid) return 'http://192.168.1.7:8000/v1'; // Change this to your computer's actual Wi-Fi IPv4 address!
+    } catch (e) {
+      // Platform throws on Web
+    }
+    return 'http://localhost:8000/v1';
+  }
   static String _authToken = '';
 
   static void setToken(String token) {
@@ -223,79 +229,90 @@ class ApiService {
     }
   }
 
+  static Future<Map<String, dynamic>> getAnalyticsOverview() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/analytics/overview'),
+      headers: _headers,
+    );
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception('Failed to fetch analytics overview');
+    }
+  }
+
+  static Future<List<dynamic>> getTopViolations() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/analytics/top-violations'),
+      headers: _headers,
+    );
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception('Failed to fetch top violations');
+    }
+  }
+
+  static Future<Map<String, dynamic>> getComplianceTrend({int days = 30}) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/analytics/compliance-trend?days=$days'),
+      headers: _headers,
+    );
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception('Failed to fetch compliance trend');
+    }
+  }
+
+  static Future<List<dynamic>> getByCategory() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/analytics/by-category'),
+      headers: _headers,
+    );
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception('Failed to fetch category data');
+    }
+  }
+
+  static Future<List<dynamic>> getBatchListings() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/batch/listings'),
+      headers: _headers,
+    );
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception('Failed to fetch batch listings');
+    }
+  }
+
+  static Future<List<dynamic>> getCitizenReports() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/citizens/reports'),
+      headers: _headers,
+    );
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception('Failed to fetch citizen reports');
+    }
+  }
+
   // ─── SCAN ENDPOINTS ───────────────────────────────────────────────────────
-
-  /// Upload a label image. Returns {'task_id': 'xxxx', 'scan_id': 'yyyy'}
-  static Future<Map<String, dynamic>> uploadScan(File imageFile) async {
-    final uri = Uri.parse('$baseUrl/scans/upload');
-    final request = http.MultipartRequest('POST', uri);
-    request.headers.addAll({'Authorization': 'Bearer $_authToken'});
-    request.files.add(await http.MultipartFile.fromPath(
-      'file',
-      imageFile.path,
-      contentType: MediaType('image', 'jpeg'),
-    ));
-
-    final streamed = await request.send();
-    final response = await http.Response.fromStream(streamed);
-
-    if (response.statusCode == 200) {
-      return jsonDecode(response.body);
-    } else {
-      final detail = jsonDecode(response.body)['detail'] ?? 'Upload failed';
-      throw Exception(detail);
-    }
-  }
-
-  /// Poll processing status. Returns {'status': 'processing'|'done'|'error', 'step': 0-5}
-  static Future<Map<String, dynamic>> getScanStatus(String taskId) async {
-    final response = await http.get(
-      Uri.parse('$baseUrl/scans/$taskId/status'),
-      headers: _headers,
-    );
-    if (response.statusCode == 200) {
-      return jsonDecode(response.body);
-    } else {
-      throw Exception('Status check failed');
-    }
-  }
-
-  /// Get full result of a completed scan.
-  static Future<Map<String, dynamic>> getScanResult(String taskId) async {
-    final response = await http.get(
-      Uri.parse('$baseUrl/scans/$taskId/result'),
-      headers: _headers,
-    );
-    if (response.statusCode == 200) {
-      return jsonDecode(response.body);
-    } else {
-      throw Exception('Failed to fetch result');
-    }
-  }
 
   /// Get all scans for the current user.
   static Future<List<dynamic>> getScans({int page = 1, int limit = 20}) async {
     final response = await http.get(
-      Uri.parse('$baseUrl/scans?page=$page&limit=$limit'),
+      Uri.parse('$baseUrl/check/scans?page=$page&limit=$limit'),
       headers: _headers,
     );
     if (response.statusCode == 200) {
       return jsonDecode(response.body);
     } else {
       throw Exception('Failed to fetch scan history');
-    }
-  }
-
-  /// Download PDF report for a scan.
-  static Future<Uint8List> getScanReport(String scanId) async {
-    final response = await http.get(
-      Uri.parse('$baseUrl/reports/$scanId/pdf'),
-      headers: _headers,
-    );
-    if (response.statusCode == 200) {
-      return response.bodyBytes;
-    } else {
-      throw Exception('Failed to download report');
     }
   }
 

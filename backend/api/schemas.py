@@ -113,6 +113,8 @@ class ScanResponse(BaseModel):
     pdf_report_url: Optional[str] = None
     annotated_image_url: Optional[str] = None
     ocr_preview: Optional[str] = None
+    pdp_area_cm2: Optional[float] = None
+    pdp_area_method: Optional[str] = None
 
 
 class ScanAsyncResponse(BaseModel):

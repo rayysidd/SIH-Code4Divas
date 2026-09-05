@@ -8,6 +8,7 @@ import 'package:design_system/tokens/colors.dart';
 import 'package:design_system/tokens/spacing.dart';
 import 'package:design_system/components/verdict_badge.dart';
 import '../providers/scan_provider.dart';
+import '../services/api_service.dart';
 
 /// Screen M-04: Scan Tab — Home (Inspector Role) with glassmorphism
 class ScanHomeScreen extends ConsumerStatefulWidget {
@@ -19,6 +20,10 @@ class ScanHomeScreen extends ConsumerStatefulWidget {
 
 class _ScanHomeScreenState extends ConsumerState<ScanHomeScreen> with SingleTickerProviderStateMixin {
   late final AnimationController _pulseCtrl;
+  bool _isLoading = true;
+  String? _error;
+  Map<String, dynamic>? _overview;
+  List<dynamic> _recentScans = [];
 
   @override
   void initState() {
@@ -27,6 +32,32 @@ class _ScanHomeScreenState extends ConsumerState<ScanHomeScreen> with SingleTick
       vsync: this,
       duration: const Duration(milliseconds: 1500),
     )..repeat(reverse: true);
+    _fetchData();
+  }
+
+  Future<void> _fetchData() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+    try {
+      final overview = await ApiService.getAnalyticsOverview();
+      final scans = await ApiService.getScans(limit: 3);
+      if (mounted) {
+        setState(() {
+          _overview = overview;
+          _recentScans = scans;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _isLoading = false;
+        });
+      }
+    }
   }
 
   @override
@@ -116,34 +147,38 @@ class _ScanHomeScreenState extends ConsumerState<ScanHomeScreen> with SingleTick
                 children: [
                   // Stats Card
                   _GlassCard(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text("Today's Scans: 14",
-                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: LabelLensColors.textPrimary)),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            const VerdictBadge(verdict: VerdictType.pass, size: BadgeSize.sm),
-                            const SizedBox(width: 8),
-                            const Text('11 Pass', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                            const SizedBox(width: 24),
-                            const VerdictBadge(verdict: VerdictType.fail, size: BadgeSize.sm),
-                            const SizedBox(width: 8),
-                            const Text('3 Fail', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Icon(Icons.location_on, size: 14, color: LabelLensColors.brandSecondary),
-                            const SizedBox(width: 4),
-                            Text('Sadar Bazaar, Delhi',
-                                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: LabelLensColors.textSecondary)),
-                          ],
-                        ),
-                      ],
-                    ),
+                    child: _isLoading 
+                      ? const Center(child: Padding(padding: EdgeInsets.all(16), child: CircularProgressIndicator()))
+                      : _error != null 
+                        ? Center(child: Text(_error!, style: const TextStyle(color: LabelLensColors.statusFail)))
+                        : Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text("Total Scans: ${_overview!['total_scans']}",
+                                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: LabelLensColors.textPrimary)),
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  const VerdictBadge(verdict: VerdictType.pass, size: BadgeSize.sm),
+                                  const SizedBox(width: 8),
+                                  Text('${_overview!['pass_rate']}% Pass Rate', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                                  const SizedBox(width: 24),
+                                  const VerdictBadge(verdict: VerdictType.warn, size: BadgeSize.sm),
+                                  const SizedBox(width: 8),
+                                  Text('${_overview!['open_violations']} Open Violations', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  const Icon(Icons.timer, size: 14, color: LabelLensColors.brandSecondary),
+                                  const SizedBox(width: 4),
+                                  Text('Avg scan time: ${_overview!['avg_scan_time_seconds']}s',
+                                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: LabelLensColors.textSecondary)),
+                                ],
+                              ),
+                            ],
+                          ),
                   ),
                   const SizedBox(height: LabelLensSpacing.s6),
 
@@ -217,9 +252,32 @@ class _ScanHomeScreenState extends ConsumerState<ScanHomeScreen> with SingleTick
                           fontSize: 12, fontWeight: FontWeight.w700,
                           color: LabelLensColors.textTertiary, letterSpacing: 1.5)),
                   const SizedBox(height: LabelLensSpacing.s4),
-                  _RecentScanRow(name: 'Sunflower Oil', verdict: VerdictType.fail, time: '12m ago'),
-                  _RecentScanRow(name: 'Wheat Biscuits', verdict: VerdictType.pass, time: '28m ago'),
-                  _RecentScanRow(name: 'Soap Bar 100g', verdict: VerdictType.pass, time: '41m ago'),
+                  if (_isLoading)
+                    const Center(child: Padding(padding: EdgeInsets.all(16), child: CircularProgressIndicator()))
+                  else if (_error != null)
+                    Center(child: Text(_error!, style: const TextStyle(color: LabelLensColors.statusFail)))
+                  else if (_recentScans.isEmpty)
+                    const Center(
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(vertical: 24),
+                        child: Text('No scans yet. Start your first scan!', style: TextStyle(color: LabelLensColors.textSecondary)),
+                      )
+                    )
+                  else
+                    ..._recentScans.map((scan) {
+                      final scanId = scan['scan_id']?.toString() ?? '';
+                      final verdictStr = scan['overall_verdict']?.toString() ?? 'PROCESSING';
+                      final verdict = verdictStr == 'FAIL' ? VerdictType.fail : 
+                                      (verdictStr == 'PASS' ? VerdictType.pass : 
+                                      (verdictStr == 'NEEDS_VERIFICATION' ? VerdictType.inconclusive : VerdictType.warn));
+                      final time = scan['created_at']?.toString() ?? '';
+                      final timeStr = time.isNotEmpty ? DateTime.tryParse(time)?.toLocal().toString().split('.')[0] ?? '—' : '—';
+                      return _RecentScanRow(
+                        name: scanId.length > 8 ? scanId.substring(0, 8) : scanId,
+                        verdict: verdict,
+                        time: timeStr,
+                      );
+                    }).toList(),
                   const SizedBox(height: LabelLensSpacing.s4),
                   Center(
                     child: TextButton(

@@ -2,20 +2,47 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:design_system/tokens/colors.dart';
 import 'package:design_system/tokens/spacing.dart';
-import 'package:design_system/components/verdict_badge.dart';
+import '../services/api_service.dart';
 
-class BatchAuditScreen extends StatelessWidget {
+class BatchAuditScreen extends StatefulWidget {
   const BatchAuditScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    // Dummy Data matching web BatchPage
-    final batches = [
-      { 'id': 'BATCH-9942', 'status': 'COMPLETED', 'total': 142, 'pass': 118, 'fail': 24, 'date': '26 Aug, 14:30' },
-      { 'id': 'BATCH-9941', 'status': 'PROCESSING', 'total': 500, 'pass': 210, 'fail': 40, 'date': '26 Aug, 10:15', 'progress': 0.5 },
-      { 'id': 'BATCH-9940', 'status': 'COMPLETED', 'total': 50, 'pass': 50, 'fail': 0, 'date': '25 Aug, 16:45' },
-    ];
+  State<BatchAuditScreen> createState() => _BatchAuditScreenState();
+}
 
+class _BatchAuditScreenState extends State<BatchAuditScreen> {
+  bool _isLoading = true;
+  String? _error;
+  List<dynamic> _batches = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchBatches();
+  }
+
+  Future<void> _fetchBatches() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+    try {
+      final data = await ApiService.getBatchListings();
+      setState(() {
+        _batches = data;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+        _isLoading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: LabelLensColors.surface1,
       extendBodyBehindAppBar: true,
@@ -88,80 +115,123 @@ class BatchAuditScreen extends StatelessWidget {
                 ),
                 
                 Expanded(
-                  child: ListView.builder(
-                    padding: const EdgeInsets.symmetric(horizontal: LabelLensSpacing.s4),
-                    itemCount: batches.length,
-                    itemBuilder: (context, index) {
-                      final b = batches[index];
-                      final isProcessing = b['status'] == 'PROCESSING';
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.85),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: Colors.white.withOpacity(0.5)),
-                          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))],
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.all(16.0),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  child: _isLoading
+                      ? const Center(child: CircularProgressIndicator())
+                      : _error != null
+                          ? Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  Text(b['id'] as String, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                    decoration: BoxDecoration(
-                                      color: isProcessing ? LabelLensColors.brandSecondary.withOpacity(0.2) : LabelLensColors.statusPass.withOpacity(0.2),
-                                      borderRadius: BorderRadius.circular(4),
-                                    ),
-                                    child: Text(
-                                      b['status'] as String,
-                                      style: TextStyle(
-                                        color: isProcessing ? LabelLensColors.brandSecondary : LabelLensColors.statusPass,
-                                        fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 0.5
-                                      ),
-                                    ),
+                                  const Icon(Icons.error_outline, size: 48, color: LabelLensColors.statusFail),
+                                  const SizedBox(height: 12),
+                                  Text(_error!, style: const TextStyle(color: LabelLensColors.statusFail)),
+                                  const SizedBox(height: 12),
+                                  ElevatedButton(
+                                    onPressed: _fetchBatches,
+                                    child: const Text('Retry'),
                                   ),
                                 ],
                               ),
-                              const SizedBox(height: 16),
-                              if (isProcessing) ...[
-                                LinearProgressIndicator(
-                                  value: b['progress'] as double,
-                                  backgroundColor: LabelLensColors.surface2,
-                                  valueColor: const AlwaysStoppedAnimation<Color>(LabelLensColors.brandPrimary),
+                            )
+                          : _batches.isEmpty
+                              ? Center(
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: const [
+                                      Icon(Icons.inbox_outlined, size: 48, color: LabelLensColors.textTertiary),
+                                      SizedBox(height: 12),
+                                      Text('No batch jobs yet', style: TextStyle(color: LabelLensColors.textTertiary, fontSize: 16, fontWeight: FontWeight.w600)),
+                                      SizedBox(height: 4),
+                                      Text('Submit your first batch to see results here.', style: TextStyle(color: LabelLensColors.textTertiary, fontSize: 13)),
+                                    ],
+                                  ),
+                                )
+                              : RefreshIndicator(
+                                  onRefresh: _fetchBatches,
+                                  child: ListView.builder(
+                                    padding: const EdgeInsets.symmetric(horizontal: LabelLensSpacing.s4),
+                                    itemCount: _batches.length,
+                                    itemBuilder: (context, index) {
+                                      final b = _batches[index];
+                                      final isProcessing = b['status'] == 'PROCESSING';
+                                      final total = b['total'] ?? b['total_urls'] ?? 0;
+                                      final pass = b['pass_count'] ?? b['pass'] ?? 0;
+                                      final fail = b['fail_count'] ?? b['fail'] ?? 0;
+                                      final processed = b['processed'] ?? (pass + fail);
+                                      final batchId = b['batch_id'] ?? b['id'] ?? 'Unknown';
+                                      
+                                      return Container(
+                                        margin: const EdgeInsets.only(bottom: 12),
+                                        decoration: BoxDecoration(
+                                          color: Colors.white.withOpacity(0.85),
+                                          borderRadius: BorderRadius.circular(16),
+                                          border: Border.all(color: Colors.white.withOpacity(0.5)),
+                                          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))],
+                                        ),
+                                        child: Padding(
+                                          padding: const EdgeInsets.all(16.0),
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Row(
+                                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                children: [
+                                                  Text(batchId.toString(), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                                  Container(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                    decoration: BoxDecoration(
+                                                      color: isProcessing ? LabelLensColors.brandSecondary.withOpacity(0.2) : LabelLensColors.statusPass.withOpacity(0.2),
+                                                      borderRadius: BorderRadius.circular(4),
+                                                    ),
+                                                    child: Text(
+                                                      (b['status'] ?? 'UNKNOWN').toString(),
+                                                      style: TextStyle(
+                                                        color: isProcessing ? LabelLensColors.brandSecondary : LabelLensColors.statusPass,
+                                                        fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 0.5
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                              const SizedBox(height: 16),
+                                              if (isProcessing) ...[
+                                                LinearProgressIndicator(
+                                                  value: total > 0 ? processed / total : 0,
+                                                  backgroundColor: LabelLensColors.surface2,
+                                                  valueColor: const AlwaysStoppedAnimation<Color>(LabelLensColors.brandPrimary),
+                                                ),
+                                                const SizedBox(height: 8),
+                                                Text('$processed / $total processed', style: const TextStyle(fontSize: 12, color: LabelLensColors.textSecondary)),
+                                              ] else ...[
+                                                Row(
+                                                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                                                  children: [
+                                                    _Stat(label: 'Total', value: total.toString(), icon: Icons.link),
+                                                    _Stat(label: 'Pass', value: pass.toString(), icon: Icons.check_circle, color: LabelLensColors.statusPass),
+                                                    _Stat(label: 'Fail', value: fail.toString(), icon: Icons.cancel, color: LabelLensColors.statusFail),
+                                                  ],
+                                                ),
+                                              ],
+                                              const SizedBox(height: 16),
+                                              Container(height: 1, color: LabelLensColors.surface3.withOpacity(0.5)),
+                                              const SizedBox(height: 12),
+                                              Row(
+                                                children: [
+                                                  const Icon(Icons.access_time, size: 14, color: LabelLensColors.textTertiary),
+                                                  const SizedBox(width: 4),
+                                                  Text(
+                                                    b['created_at'] != null ? DateTime.tryParse(b['created_at'])?.toLocal().toString().split('.')[0] ?? '—' : '—',
+                                                    style: const TextStyle(fontSize: 12, color: LabelLensColors.textTertiary),
+                                                  ),
+                                                ],
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  ),
                                 ),
-                                const SizedBox(height: 8),
-                                Text('${(b['pass'] as int) + (b['fail'] as int)} / ${b['total']} processed', style: const TextStyle(fontSize: 12, color: LabelLensColors.textSecondary)),
-                              ] else ...[
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                                  children: [
-                                    _Stat(label: 'Total', value: b['total'].toString(), icon: Icons.link),
-                                    _Stat(label: 'Pass', value: b['pass'].toString(), icon: Icons.check_circle, color: LabelLensColors.statusPass),
-                                    _Stat(label: 'Fail', value: b['fail'].toString(), icon: Icons.cancel, color: LabelLensColors.statusFail),
-                                  ],
-                                ),
-                              ],
-                              const SizedBox(height: 16),
-                              Container(height: 1, color: LabelLensColors.surface3.withOpacity(0.5)),
-                              const SizedBox(height: 12),
-                              Row(
-                                children: [
-                                  const Icon(Icons.access_time, size: 14, color: LabelLensColors.textTertiary),
-                                  const SizedBox(width: 4),
-                                  Text(b['date'] as String, style: const TextStyle(fontSize: 12, color: LabelLensColors.textTertiary)),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
                 ),
                 const SizedBox(height: 80),
               ],

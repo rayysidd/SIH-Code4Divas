@@ -30,6 +30,8 @@ interface ScanReport {
   violations: ViolationDetail[];
   generated_at?: string;
   rule_version?: string;
+  pdp_area_cm2?: number | null;
+  pdp_area_method?: 'barcode_calibrated' | 'heuristic_fallback' | null;
 }
 
 const verdictConfig: Record<string, { class: string; icon: React.ElementType; label: string }> = {
@@ -221,6 +223,30 @@ export const ScanDetailPage: React.FC = () => {
               <span>Rules: v{report.rule_version || '2024.01'}</span>
               {report.generated_at && <span>Generated: {report.generated_at}</span>}
             </div>
+            {report.pdp_area_cm2 != null && (
+              <div style={{ marginTop: 'var(--space-3)', paddingTop: 'var(--space-3)', borderTop: '1px solid var(--color-surface-3)', fontSize: '0.8125rem', color: 'var(--color-text-secondary)', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    PDP Area
+                    <span title="Principal Display Panel area — the front face of the package in cm². Used to determine minimum font-size requirements under LMPC Rule 7." style={{ cursor: 'help' }}>ℹ️</span>
+                  </span>
+                  <span>
+                    {report.pdp_area_method === 'barcode_calibrated' ? '🟢' : report.pdp_area_method === 'heuristic_fallback' ? '🟡' : '⚪'}
+                  </span>
+                  <span style={{ fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                    {report.pdp_area_method === 'heuristic_fallback' ? '~' : ''}{report.pdp_area_cm2} cm²
+                  </span>
+                  <span>
+                    · {report.pdp_area_method === 'barcode_calibrated' ? 'Barcode calibrated' : report.pdp_area_method === 'heuristic_fallback' ? 'Estimated — no barcode found' : 'Unknown method'}
+                  </span>
+                </div>
+                {report.pdp_area_method === 'heuristic_fallback' && (
+                  <div style={{ color: 'var(--color-warn)', fontStyle: 'italic', fontSize: '0.75rem', marginTop: '2px' }}>
+                    Font-size verdicts on this scan are approximate. Physical verification recommended before issuing notice.
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </>
       )}

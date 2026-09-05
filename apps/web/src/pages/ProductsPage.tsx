@@ -2,7 +2,15 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MagnifyingGlass, Plus, UploadSimple, DotsThree, Package, ArrowClockwise } from '@phosphor-icons/react';
 import { useQuery } from '@tanstack/react-query';
-// import { apiGet } from '../lib/apiClient';
+import { apiGet } from '../lib/apiClient';
+
+interface ScanProduct {
+  scan_id: string;
+  overall_verdict: string;
+  overall_confidence: number;
+  created_at: string;
+  rule_version?: string;
+}
 
 /* ── Page Component (Screen W-02) ─────────────────────────────────────── */
 
@@ -11,28 +19,15 @@ export const ProductsPage: React.FC = () => {
   const [filterVerdict, setFilterVerdict] = useState('ALL');
   const navigate = useNavigate();
 
-  // Fetch scan data from backend — using as proxy for demo
   const scansQuery = useQuery({
     queryKey: ['products'],
-    queryFn: async () => {
-      // In production, this would be GET /v1/scans or similar
-      // For now, return simulated data from analytics
-      // await apiGet<{ total_scans: number; pass_rate: number }>('/v1/analytics/');
-      // Build simulated product list from stats
-      return [
-        { id: '1', name: 'Sunflower Oil 1L', gtin: '8901234567890', category: 'Food', verdict: 'FAIL', score: 64, checks: '18/28' },
-        { id: '2', name: 'Wheat Biscuits 250g', gtin: '8901234567891', category: 'Food', verdict: 'PASS', score: 100, checks: '28/28' },
-        { id: '3', name: 'Face Cream 50ml', gtin: '8901234567892', category: 'Cosmetics', verdict: 'WARN', score: 85, checks: '24/28' },
-        { id: '4', name: 'LED Bulb 9W', gtin: '8901234567893', category: 'Electronics', verdict: 'PASS', score: 96, checks: '27/28' },
-        { id: '5', name: 'Soap Bar 100g', gtin: '8901234567894', category: 'Cosmetics', verdict: 'FAIL', score: 58, checks: '16/28' },
-      ];
-    },
+    queryFn: () => apiGet<ScanProduct[]>('/v1/check/scans'),
   });
 
   const products = scansQuery.data ?? [];
   const filtered = products.filter(p => {
-    const matchesSearch = !search || p.name.toLowerCase().includes(search.toLowerCase()) || p.gtin.includes(search);
-    const matchesVerdict = filterVerdict === 'ALL' || p.verdict === filterVerdict;
+    const matchesSearch = !search || p.scan_id.toLowerCase().includes(search.toLowerCase());
+    const matchesVerdict = filterVerdict === 'ALL' || p.overall_verdict === filterVerdict;
     return matchesSearch && matchesVerdict;
   });
 
@@ -112,34 +107,34 @@ export const ProductsPage: React.FC = () => {
               <thead>
                 <tr>
                   <th style={{ width: 40 }}><input type="checkbox" aria-label="Select all" /></th>
-                  <th>Product</th>
-                  <th>GTIN</th>
-                  <th>Category</th>
+                  <th>Scan ID</th>
                   <th>Verdict</th>
-                  <th>Score</th>
+                  <th>Confidence</th>
+                  <th>Scanned</th>
                   <th style={{ width: 50 }}>Action</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.map(p => (
-                  <tr key={p.id} style={{ cursor: 'pointer' }} onClick={() => navigate(`/dashboard/scan/${p.id}`)}>
-                    <td data-label="" onClick={e => e.stopPropagation()}><input type="checkbox" aria-label={`Select ${p.name}`} /></td>
-                    <td data-label="Product" style={{ fontWeight: 500 }}>{p.name}</td>
-                    <td data-label="GTIN" className="mono">{p.gtin}</td>
-                    <td data-label="Category">{p.category}</td>
+                  <tr key={p.scan_id} style={{ cursor: 'pointer' }} onClick={() => navigate(`/dashboard/scan/${p.scan_id}`)}>
+                    <td data-label="" onClick={e => e.stopPropagation()}><input type="checkbox" aria-label={`Select ${p.scan_id}`} /></td>
+                    <td data-label="Scan ID" className="mono" style={{ fontWeight: 500 }}>{p.scan_id.substring(0, 12)}…</td>
                     <td data-label="Verdict">
-                      <span className={`badge badge-${p.verdict.toLowerCase()}`}>{p.verdict}</span>
+                      <span className={`badge badge-${p.overall_verdict.toLowerCase()}`}>{p.overall_verdict}</span>
                     </td>
-                    <td data-label="Score">
+                    <td data-label="Confidence">
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <div style={{ width: 60, height: 6, background: 'var(--color-surface-3)', borderRadius: 'var(--radius-sm)' }}>
                           <div style={{
-                            width: `${p.score}%`, height: '100%', borderRadius: 'var(--radius-sm)',
-                            background: p.score >= 90 ? 'var(--color-pass)' : p.score >= 70 ? 'var(--color-warn)' : 'var(--color-fail)',
+                            width: `${(p.overall_confidence * 100)}%`, height: '100%', borderRadius: 'var(--radius-sm)',
+                            background: p.overall_confidence >= 0.9 ? 'var(--color-pass)' : p.overall_confidence >= 0.7 ? 'var(--color-warn)' : 'var(--color-fail)',
                           }} />
                         </div>
-                        <span style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)' }}>{p.checks}</span>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)' }}>{(p.overall_confidence * 100).toFixed(0)}%</span>
                       </div>
+                    </td>
+                    <td data-label="Scanned" style={{ color: 'var(--color-text-tertiary)', fontSize: '0.75rem' }}>
+                      {p.created_at ? new Date(p.created_at).toLocaleDateString('en-IN') : '—'}
                     </td>
                     <td data-label="Action" onClick={e => e.stopPropagation()}>
                       <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-tertiary)' }}>

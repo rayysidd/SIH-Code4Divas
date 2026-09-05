@@ -3,20 +3,47 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:design_system/tokens/colors.dart';
 import 'package:design_system/tokens/spacing.dart';
+import '../services/api_service.dart';
 
-class ViolationsScreen extends StatelessWidget {
+class ViolationsScreen extends StatefulWidget {
   const ViolationsScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    // Dummy Data matching web ViolationsPage
-    final violations = [
-      { 'product': 'Sunflower Oil 1L', 'rule': 'Rule 6(1)(e)', 'desc': 'MRP - "Inclusive of all taxes" missing', 'severity': 'CRITICAL', 'status': 'Open', 'date': '26 Aug 2026' },
-      { 'product': 'Sunflower Oil 1L', 'rule': 'Rule 7(4)', 'desc': 'Numeral height 1.8mm < 2.5mm required', 'severity': 'HIGH', 'status': 'Open', 'date': '26 Aug 2026' },
-      { 'product': 'Sunflower Oil 1L', 'rule': 'Rule 6(1)(h)', 'desc': 'Customer care details absent', 'severity': 'CRITICAL', 'status': 'Open', 'date': '26 Aug 2026' },
-      { 'product': 'Soap Bar 100g', 'rule': 'Rule 6(11)', 'desc': 'Unit sale price not declared', 'severity': 'HIGH', 'status': 'In Review', 'date': '25 Aug 2026' },
-    ];
+  State<ViolationsScreen> createState() => _ViolationsScreenState();
+}
 
+class _ViolationsScreenState extends State<ViolationsScreen> {
+  bool _isLoading = true;
+  String? _error;
+  List<dynamic> _violations = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchViolations();
+  }
+
+  Future<void> _fetchViolations() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+    try {
+      final data = await ApiService.getTopViolations();
+      setState(() {
+        _violations = data;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+        _isLoading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: LabelLensColors.surface1,
       extendBodyBehindAppBar: true,
@@ -61,82 +88,109 @@ class ViolationsScreen extends StatelessWidget {
                 ),
                 
                 Expanded(
-                  child: ListView.builder(
-                    padding: const EdgeInsets.symmetric(horizontal: LabelLensSpacing.s4, vertical: 8),
-                    itemCount: violations.length,
-                    itemBuilder: (context, index) {
-                      final v = violations[index];
-                      final isCritical = v['severity'] == 'CRITICAL';
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.85),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: isCritical ? LabelLensColors.statusFail.withOpacity(0.3) : Colors.white.withOpacity(0.5)),
-                          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))],
-                        ),
-                        child: Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(16),
-                            onTap: () => context.push('/scan/1'),
-                            child: Padding(
-                              padding: const EdgeInsets.all(16.0),
+                  child: _isLoading
+                      ? const Center(child: CircularProgressIndicator())
+                      : _error != null
+                          ? Center(
                               child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  Row(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                        decoration: BoxDecoration(
-                                          color: isCritical ? LabelLensColors.statusFail : LabelLensColors.statusWarn,
-                                          borderRadius: BorderRadius.circular(4),
-                                        ),
-                                        child: Text(
-                                          v['severity']!,
-                                          style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 0.5),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                        decoration: BoxDecoration(
-                                          color: LabelLensColors.surface2,
-                                          borderRadius: BorderRadius.circular(4),
-                                        ),
-                                        child: Text(
-                                          v['status']!,
-                                          style: const TextStyle(color: LabelLensColors.textSecondary, fontSize: 10, fontWeight: FontWeight.bold),
-                                        ),
-                                      ),
-                                      const Spacer(),
-                                      Text(v['date']!, style: const TextStyle(fontSize: 12, color: LabelLensColors.textTertiary)),
-                                    ],
-                                  ),
+                                  const Icon(Icons.error_outline, size: 48, color: LabelLensColors.statusFail),
                                   const SizedBox(height: 12),
-                                  Text(v['product']!, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: LabelLensColors.textPrimary)),
-                                  const SizedBox(height: 4),
-                                  Row(
-                                    children: [
-                                      const Icon(Icons.gavel, size: 14, color: LabelLensColors.brandSecondary),
-                                      const SizedBox(width: 4),
-                                      Text(v['rule']!, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: LabelLensColors.brandSecondary)),
-                                    ],
+                                  Text(_error!, style: const TextStyle(color: LabelLensColors.statusFail)),
+                                  const SizedBox(height: 12),
+                                  ElevatedButton(
+                                    onPressed: _fetchViolations,
+                                    child: const Text('Retry'),
                                   ),
-                                  const SizedBox(height: 8),
-                                  Text(v['desc']!, style: const TextStyle(color: LabelLensColors.textSecondary, fontSize: 14)),
                                 ],
                               ),
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
+                            )
+                          : _violations.isEmpty
+                              ? Center(
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: const [
+                                      Icon(Icons.check_circle_outline, size: 48, color: LabelLensColors.textTertiary),
+                                      SizedBox(height: 12),
+                                      Text('No violations recorded', style: TextStyle(color: LabelLensColors.textTertiary, fontSize: 16, fontWeight: FontWeight.w600)),
+                                      SizedBox(height: 4),
+                                      Text('All scanned products are currently compliant.', style: TextStyle(color: LabelLensColors.textTertiary, fontSize: 13)),
+                                    ],
+                                  ),
+                                )
+                              : RefreshIndicator(
+                                  onRefresh: _fetchViolations,
+                                  child: ListView.builder(
+                                    padding: const EdgeInsets.symmetric(horizontal: LabelLensSpacing.s4, vertical: 8),
+                                    itemCount: _violations.length,
+                                    itemBuilder: (context, index) {
+                                      final v = _violations[index];
+                                      final rule = v['rule']?.toString() ?? 'Unknown';
+                                      final desc = v['description']?.toString() ?? '';
+                                      final count = v['count'] ?? 0;
+                                      final percentage = v['percentage'] ?? 0;
+                                      
+                                      return Container(
+                                        margin: const EdgeInsets.only(bottom: 12),
+                                        decoration: BoxDecoration(
+                                          color: Colors.white.withOpacity(0.85),
+                                          borderRadius: BorderRadius.circular(16),
+                                          border: Border.all(color: Colors.white.withOpacity(0.5)),
+                                          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))],
+                                        ),
+                                        child: Padding(
+                                          padding: const EdgeInsets.all(16.0),
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Row(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                children: [
+                                                  Container(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                    decoration: BoxDecoration(
+                                                      color: LabelLensColors.statusFail,
+                                                      borderRadius: BorderRadius.circular(4),
+                                                    ),
+                                                    child: Text(
+                                                      '$count occurrences',
+                                                      style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 0.5),
+                                                    ),
+                                                  ),
+                                                  const SizedBox(width: 8),
+                                                  Container(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                    decoration: BoxDecoration(
+                                                      color: LabelLensColors.surface2,
+                                                      borderRadius: BorderRadius.circular(4),
+                                                    ),
+                                                    child: Text(
+                                                      '$percentage%',
+                                                      style: const TextStyle(color: LabelLensColors.textSecondary, fontSize: 10, fontWeight: FontWeight.bold),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                              const SizedBox(height: 12),
+                                              Row(
+                                                children: [
+                                                  const Icon(Icons.gavel, size: 14, color: LabelLensColors.brandSecondary),
+                                                  const SizedBox(width: 4),
+                                                  Text(rule, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: LabelLensColors.brandSecondary)),
+                                                ],
+                                              ),
+                                              const SizedBox(height: 8),
+                                              Text(desc, style: const TextStyle(color: LabelLensColors.textSecondary, fontSize: 14)),
+                                            ],
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ),
                 ),
-                const SizedBox(height: 80), // Padding for bottom nav
+                const SizedBox(height: 80),
               ],
             ),
           ),

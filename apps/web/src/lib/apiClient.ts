@@ -5,7 +5,7 @@
 
 import { useAuthStore } from '../store/authStore';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+const API_BASE = import.meta.env.VITE_API_BASE_URL || `http://${window.location.hostname}:8000`;
 
 type RequestOptions = Omit<RequestInit, 'headers'> & {
   headers?: Record<string, string>;

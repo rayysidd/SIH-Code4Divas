@@ -10,10 +10,26 @@ services:
     environment:
       - JWT_SECRET_KEY=sih2026-labellens-dev-secret
       - DATABASE_URL=postgresql://labellens:Gr%40sit2708@db:5432/labellens_db
+      - CELERY_BROKER_URL=redis://redis:6379/0
     volumes:
       - ./backend:/app
     depends_on:
       - db
+      - redis
+
+  celery-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: celery -A workers.celery_app worker --loglevel=info --concurrency=4
+    depends_on:
+      - redis
+      - db
+    environment:
+      - DATABASE_URL=postgresql://labellens:Gr%40sit2708@db:5432/labellens_db
+      - CELERY_BROKER_URL=redis://redis:6379/0
+    volumes:
+      - ./backend:/app
 
   web:
     build:
@@ -23,6 +39,11 @@ services:
       - "3000:80"
     depends_on:
       - backend
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
 
   db:
     image: postgres:15-alpine

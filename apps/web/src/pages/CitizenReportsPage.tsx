@@ -1,7 +1,7 @@
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Users, ArrowClockwise } from '@phosphor-icons/react';
-import { } from '../lib/apiClient';
+import { apiGet } from '../lib/apiClient';
 
 interface CitizenReport {
   tracking_id: string;
@@ -16,14 +16,7 @@ interface CitizenReport {
 export const CitizenReportsPage: React.FC = () => {
   const reportsQuery = useQuery({
     queryKey: ['citizen-reports'],
-    queryFn: async () => {
-      // Simulated list — in production from GET /v1/citizens/reports
-      return [
-        { tracking_id: 'LLR-20260826-A1B2', problem_type: 'MRP missing or tampered', description: 'MRP sticker appears to be pasted over original price', submitted_at: '2026-08-26T14:30:00', status: 'SUBMITTED', latitude: 28.6139, longitude: 77.2090 },
-        { tracking_id: 'LLR-20260825-C3D4', problem_type: 'Net quantity missing', description: 'No weight/volume mentioned on the package', submitted_at: '2026-08-25T11:15:00', status: 'IN_REVIEW', latitude: 28.5355, longitude: 77.3910 },
-        { tracking_id: 'LLR-20260824-E5F6', problem_type: 'No consumer care details', submitted_at: '2026-08-24T09:45:00', status: 'RESOLVED', latitude: 28.6304, longitude: 77.2177 },
-      ] as CitizenReport[];
-    },
+    queryFn: () => apiGet<CitizenReport[]>('/v1/citizens/reports'),
   });
 
   const reports = reportsQuery.data ?? [];

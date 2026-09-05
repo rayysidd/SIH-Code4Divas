@@ -46,8 +46,8 @@ async def get_report(
             "severity": v.severity,
             "description": v.description,
             "confidence": v.confidence,
-            "measured_value": v.get("measured_value") if hasattr(v, "get") else getattr(v, "measured_value", None),
-            "required_value": v.get("required_value") if hasattr(v, "get") else getattr(v, "required_value", None),
+            "measured_value": getattr(v, "measured_value", None),
+            "required_value": getattr(v, "required_value", None),
         })
         
     critical = sum(1 for v in db_violations if v.severity == "CRITICAL")

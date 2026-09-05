@@ -14,6 +14,7 @@ from alembic import command
 from alembic.config import Config
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from .routers import (
     scans,
@@ -51,6 +52,12 @@ app.include_router(citizens.router, prefix=API_V1_PREFIX)
 app.include_router(reports.router, prefix=API_V1_PREFIX)
 app.include_router(analytics.router, prefix=API_V1_PREFIX)
 app.include_router(rules_router.router, prefix=API_V1_PREFIX)
+
+# Mount static files for annotated images and uploads
+import os as _os
+_static_annotated_dir = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "static", "annotated")
+_os.makedirs(_static_annotated_dir, exist_ok=True)
+app.mount("/static/annotated", StaticFiles(directory=_static_annotated_dir), name="annotated")
 
 
 @app.on_event("startup")

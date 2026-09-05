@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash, ArrowClockwise, Users, Copy, Check } from '@phosphor-icons/react';
-import { apiGet, apiPost, apiDelete } from '../../../lib/apiClient';
+import { apiGet, apiPost, apiDelete } from '../../lib/apiClient';
 
 interface InviteCode {
   code: string;

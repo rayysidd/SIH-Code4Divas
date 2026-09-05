@@ -2,7 +2,19 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MagnifyingGlass, Export, Warning, ArrowClockwise } from '@phosphor-icons/react';
 import { useQuery } from '@tanstack/react-query';
-import { } from '../lib/apiClient';
+import { apiGet } from '../lib/apiClient';
+
+interface ViolationItem {
+  violation_id: string;
+  scan_id: string;
+  violation_code: string;
+  rule_cited: string;
+  severity: string;
+  description: string;
+  confidence: number;
+  measured_value?: string;
+  required_value?: string;
+}
 
 export const ViolationsPage: React.FC = () => {
   const [filterSeverity, setFilterSeverity] = useState('ALL');
@@ -11,22 +23,13 @@ export const ViolationsPage: React.FC = () => {
 
   const violationsQuery = useQuery({
     queryKey: ['violations'],
-    queryFn: async () => {
-      // Simulated violations — in production, from GET /v1/violations
-      return [
-        { id: 'v1', product: 'Sunflower Oil 1L', rule: 'Rule 6(1)(e)', desc: 'MRP — "Inclusive of all taxes" missing', severity: 'CRITICAL', category: 'Food', status: 'Open', date: '26 Aug 2026', scanId: '1' },
-        { id: 'v2', product: 'Sunflower Oil 1L', rule: 'Rule 7(4)', desc: 'Numeral height 1.8mm < 2.5mm required', severity: 'HIGH', category: 'Food', status: 'Open', date: '26 Aug 2026', scanId: '1' },
-        { id: 'v3', product: 'Sunflower Oil 1L', rule: 'Rule 6(1)(h)', desc: 'Customer care details absent', severity: 'CRITICAL', category: 'Food', status: 'Open', date: '26 Aug 2026', scanId: '1' },
-        { id: 'v4', product: 'Soap Bar 100g', rule: 'Rule 6(11)', desc: 'Unit sale price not declared', severity: 'HIGH', category: 'Cosmetics', status: 'In Review', date: '25 Aug 2026', scanId: '5' },
-        { id: 'v5', product: 'Face Cream 50ml', rule: 'Rule 6(1)(e)', desc: 'MRP format incorrect', severity: 'MEDIUM', category: 'Cosmetics', status: 'Resolved', date: '24 Aug 2026', scanId: '3' },
-      ];
-    },
+    queryFn: () => apiGet<ViolationItem[]>('/v1/check/violations'),
   });
 
   const violations = violationsQuery.data ?? [];
   const filtered = violations.filter(v => {
     const matchesSeverity = filterSeverity === 'ALL' || v.severity === filterSeverity;
-    const matchesSearch = !search || v.product.toLowerCase().includes(search.toLowerCase()) || v.rule.toLowerCase().includes(search.toLowerCase());
+    const matchesSearch = !search || v.rule_cited.toLowerCase().includes(search.toLowerCase()) || v.description.toLowerCase().includes(search.toLowerCase());
     return matchesSeverity && matchesSearch;
   });
 
@@ -98,36 +101,27 @@ export const ViolationsPage: React.FC = () => {
               <thead>
                 <tr>
                   <th style={{ width: 40 }}><input type="checkbox" aria-label="Select all" /></th>
-                  <th>Product</th>
                   <th>Rule</th>
                   <th>Severity</th>
-                  <th>Category</th>
-                  <th>Status</th>
-                  <th>Detected</th>
+                  <th>Description</th>
+                  <th>Confidence</th>
+                  <th>Scan</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.map(v => (
-                  <tr key={v.id} style={{ cursor: 'pointer' }} onClick={() => navigate(`/dashboard/scan/${v.scanId}`)}>
-                    <td data-label="" onClick={e => e.stopPropagation()}><input type="checkbox" aria-label={`Select ${v.product}`} /></td>
-                    <td data-label="Product" style={{ fontWeight: 500 }}>{v.product}</td>
+                  <tr key={v.violation_id} style={{ cursor: 'pointer' }} onClick={() => navigate(`/dashboard/scan/${v.scan_id}`)}>
+                    <td data-label="" onClick={e => e.stopPropagation()}><input type="checkbox" aria-label={`Select ${v.violation_code}`} /></td>
                     <td data-label="Rule">
                       <div>
-                        <span className="mono" style={{ fontWeight: 600 }}>{v.rule}</span>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--color-text-tertiary)' }}>{v.desc}</div>
+                        <span className="mono" style={{ fontWeight: 600 }}>{v.rule_cited}</span>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--color-text-tertiary)' }}>{v.violation_code}</div>
                       </div>
                     </td>
                     <td data-label="Severity"><span className={`badge ${severityBadge(v.severity)}`}>{v.severity}</span></td>
-                    <td data-label="Category">{v.category}</td>
-                    <td data-label="Status">
-                      <span style={{
-                        fontSize: '0.75rem', fontWeight: 500,
-                        color: v.status === 'Open' ? 'var(--color-warn)' : v.status === 'Resolved' ? 'var(--color-pass)' : 'var(--color-brand-secondary)'
-                      }}>
-                        {v.status}
-                      </span>
-                    </td>
-                    <td data-label="Detected" style={{ color: 'var(--color-text-tertiary)', fontSize: '0.75rem' }}>{v.date}</td>
+                    <td data-label="Description" style={{ maxWidth: 300 }}>{v.description}</td>
+                    <td data-label="Confidence" style={{ color: 'var(--color-text-tertiary)', fontSize: '0.75rem' }}>{(v.confidence * 100).toFixed(0)}%</td>
+                    <td data-label="Scan" className="mono" style={{ fontSize: '0.75rem' }}>{v.scan_id.substring(0, 8)}…</td>
                   </tr>
                 ))}
               </tbody>

@@ -2,7 +2,15 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ClockCounterClockwise, MagnifyingGlass, ArrowClockwise } from '@phosphor-icons/react';
 import { useQuery } from '@tanstack/react-query';
-import { } from '../lib/apiClient';
+import { apiGet } from '../lib/apiClient';
+
+interface ScanHistoryItem {
+  scan_id: string;
+  overall_verdict: string;
+  overall_confidence: number;
+  created_at: string;
+  rule_version?: string;
+}
 
 export const ScanHistoryPage: React.FC = () => {
   const [filter, setFilter] = useState('All');
@@ -11,28 +19,20 @@ export const ScanHistoryPage: React.FC = () => {
 
   const historyQuery = useQuery({
     queryKey: ['scan-history'],
-    queryFn: async () => {
-      // Simulated scan history — in production from GET /v1/scans
-      return [
-        { scan_id: 'a1b2c3', product: 'Sunflower Oil 1L', verdict: 'FAIL', time: '14:32', date: 'Today, 26 Aug 2026', location: 'Sadar Bazaar', checks: '18/28' },
-        { scan_id: 'd4e5f6', product: 'Wheat Biscuits 250g', verdict: 'PASS', time: '14:45', date: 'Today, 26 Aug 2026', location: 'Sadar Bazaar', checks: '28/28' },
-        { scan_id: 'g7h8i9', product: 'Soap Bar 100g', verdict: 'WARN', time: '11:20', date: 'Yesterday, 25 Aug 2026', location: 'Lajpat Nagar', checks: '26/28' },
-        { scan_id: 'j0k1l2', product: 'LED Bulb 9W', verdict: 'PASS', time: '16:05', date: 'Yesterday, 25 Aug 2026', location: 'Nehru Place', checks: '27/28' },
-        { scan_id: 'm3n4o5', product: 'Face Cream 50ml', verdict: 'FAIL', time: '10:12', date: '24 Aug 2026', location: 'Connaught Place', checks: '16/28' },
-      ];
-    },
+    queryFn: () => apiGet<ScanHistoryItem[]>('/v1/check/scans'),
   });
 
   const scans = historyQuery.data ?? [];
   const filtered = scans.filter(s => {
-    const matchesFilter = filter === 'All' || s.verdict === filter.toUpperCase();
-    const matchesSearch = !search || s.product.toLowerCase().includes(search.toLowerCase()) || s.scan_id.includes(search);
+    const matchesFilter = filter === 'All' || s.overall_verdict === filter.toUpperCase();
+    const matchesSearch = !search || s.scan_id.toLowerCase().includes(search.toLowerCase());
     return matchesFilter && matchesSearch;
   });
 
   // Group by date
   const grouped = filtered.reduce<Record<string, typeof filtered>>((acc, s) => {
-    (acc[s.date] = acc[s.date] || []).push(s);
+    const dateKey = s.created_at ? new Date(s.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Unknown';
+    (acc[dateKey] = acc[dateKey] || []).push(s);
     return acc;
   }, {});
 
@@ -117,11 +117,11 @@ export const ScanHistoryPage: React.FC = () => {
                       </div>
                       <div style={{ flex: 1 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <span style={{ fontWeight: 600 }}>{s.product}</span>
-                          <span className={`badge badge-${s.verdict.toLowerCase()}`}>{s.verdict}</span>
+                          <span className="mono" style={{ fontWeight: 600 }}>{s.scan_id.substring(0, 8)}…</span>
+                          <span className={`badge badge-${s.overall_verdict.toLowerCase()}`}>{s.overall_verdict}</span>
                         </div>
                         <div style={{ fontSize: '0.75rem', color: 'var(--color-text-tertiary)', marginTop: 2 }}>
-                          {s.time} · {s.location} · {s.checks} ✓
+                          Confidence: {s.overall_confidence ? `${(s.overall_confidence * 100).toFixed(0)}%` : '—'} · Rules: v{s.rule_version || '2024.01'}
                         </div>
                       </div>
                     </div>

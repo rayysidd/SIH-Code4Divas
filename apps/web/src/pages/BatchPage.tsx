@@ -44,7 +44,7 @@ export const BatchPage: React.FC = () => {
 
   const statusQuery = useQuery({
     queryKey: ['batch-status', submittedBatchId],
-    queryFn: () => apiGet<BatchStatus>(`/v1/batch/listings/${submittedBatchId}`),
+    queryFn: () => apiGet<BatchStatus>(`/v1/batch/status/${submittedBatchId}`),
     enabled: !!submittedBatchId,
     refetchInterval: 10000, // Poll every 10s
   });
